@@ -122,19 +122,39 @@ function extractExplicitParent(node) {
     return normalizeText(rawParent);
 }
 
-function buildDirectParentMap(nodes, edges, resolveNodeKey) {
+function buildDirectParentMap(nodes, edges, resolveNodeKey, nodeByKey) {
     const directParentMap = new Map();
+    const unresolvedFeatureTyping = [];
 
+    const childrenByParent = new Map();
     for (const edge of edges) {
-        if (normalizeEdgeKind(edge) !== 'containment') {
-            continue;
+        const kind = normalizeEdgeKind(edge);
+        if (kind === 'containment') {
+            const sourceKey = resolveNodeKey(edge.source);
+            const targetKey = resolveNodeKey(edge.target);
+            if (sourceKey && targetKey && sourceKey !== targetKey) {
+                if (!childrenByParent.has(sourceKey)) childrenByParent.set(sourceKey, new Set());
+                childrenByParent.get(sourceKey).add(targetKey);
+            }
+        } else if (kind === 'featuretyping') {
+            unresolvedFeatureTyping.push(edge);
         }
-        const sourceKey = resolveNodeKey(edge.source);
-        const targetKey = resolveNodeKey(edge.target);
-        if (!sourceKey || !targetKey || sourceKey === targetKey) {
-            continue;
+    }
+
+    const parentCountByChild = new Map();
+    for (const children of childrenByParent.values()) {
+        for (const childKey of children) {
+            parentCountByChild.set(childKey, (parentCountByChild.get(childKey) || 0) + 1);
         }
-        directParentMap.set(targetKey, sourceKey);
+    }
+
+    for (const [parentKey, children] of childrenByParent) {
+        for (const childKey of children) {
+            if (parentCountByChild.get(childKey) === 1) {
+                directParentMap.set(childKey, parentKey);
+            }
+            // 부모가 여러 개인 노드는 공유 정의 → 최상위(top-level) 처리
+        }
     }
 
     for (const node of nodes) {
@@ -156,6 +176,25 @@ function buildDirectParentMap(nodes, edges, resolveNodeKey) {
                 directParentMap.set(nodeKey, resolvedCandidate);
                 break;
             }
+        }
+    }
+
+    for (const edge of unresolvedFeatureTyping) {
+        const usageKey = resolveNodeKey(edge.source);
+        const defKey = resolveNodeKey(edge.target);
+        if (!usageKey || !defKey || usageKey === defKey) {
+            continue;
+        }
+        if (directParentMap.has(usageKey)) {
+            continue;
+        }
+        const usageNode = nodeByKey.get(usageKey);
+        if (normalizeKind(usageNode?.kind || usageNode?.type) !== 'partusage') {
+            continue;
+        }
+        const defParent = directParentMap.get(defKey);
+        if (defParent && defParent !== usageKey) {
+            directParentMap.set(usageKey, defParent);
         }
     }
 
@@ -199,17 +238,50 @@ function deduplicateEdges(edges) {
     return Array.from(edgeMap.values());
 }
 
+// portdefinition의 direction 값을 border node side로 변환
+function portDirection2Side(direction) {
+    const d = normalizeText(direction).toLowerCase();
+    if (d === 'out') return 'S';
+    if (d === 'in' || d === 'inout') return 'N';
+    return 'E';
+}
+
 function buildBlockModel(model) {
     const rawNodes = Array.isArray(model?.nodes) ? model.nodes : [];
     const rawEdges = Array.isArray(model?.edges) ? model.edges : [];
     const { nodeByKey, resolveNodeKey } = buildLookup(rawNodes);
-    const directParentMap = buildDirectParentMap(rawNodes, rawEdges, resolveNodeKey);
+    const directParentMap = buildDirectParentMap(rawNodes, rawEdges, resolveNodeKey, nodeByKey);
     const keptNodeKeys = new Set();
 
     for (const node of rawNodes) {
         const nodeKey = getNodeKey(node);
         if (nodeKey && nodeByKey.has(nodeKey) && isBlockNode(node)) {
             keptNodeKeys.add(nodeKey);
+        }
+    }
+
+    // containment 엣지에서 portdefinition 타겟을 수집하여 부모 수를 계산
+    // 단일 부모에서 border node로 변환, 복수 부모는 상위 계층 유지
+    const portsByParent = new Map();   // parentKey → portKey[]
+    const portParentCount = new Map(); // portKey → 부모 수
+
+    for (const edge of rawEdges) {
+        if (normalizeEdgeKind(edge) !== 'containment') continue;
+        const sourceKey = resolveNodeKey(edge.source);
+        const targetKey = resolveNodeKey(edge.target);
+        if (!sourceKey || !targetKey || sourceKey === targetKey) continue;
+        const targetNode = nodeByKey.get(targetKey);
+        if (normalizeKind(targetNode?.kind || targetNode?.type) !== 'portdefinition') continue;
+        portParentCount.set(targetKey, (portParentCount.get(targetKey) || 0) + 1);
+        if (!portsByParent.has(sourceKey)) portsByParent.set(sourceKey, []);
+        portsByParent.get(sourceKey).push(targetKey);
+    }
+
+    const borderPortKeys = new Set();
+    for (const [portKey, count] of portParentCount) {
+        if (count === 1 && keptNodeKeys.has(portKey)) {
+            borderPortKeys.add(portKey);
+            keptNodeKeys.delete(portKey);
         }
     }
 
@@ -230,6 +302,28 @@ function buildBlockModel(model) {
         } else {
             delete nextNode.parent;
         }
+
+        // 이 노드를 단일 부모로 가지는 portdefinition을 borderNodes로 첨부
+        const ports = portsByParent.get(nodeKey) || [];
+        const borderNodes = ports
+            .filter(portKey => borderPortKeys.has(portKey))
+            .map(portKey => {
+                const portNode = nodeByKey.get(portKey);
+                return {
+                    id: portKey,
+                    name: portNode?.name || portKey,
+                    kind: 'portdefinition',
+                    type: 'portdefinition',
+                    nodeType: 'port',
+                    side: portDirection2Side(portNode?.direction),
+                    offset: 0.5,
+                    direction: portNode?.direction || '',
+                };
+            });
+        if (borderNodes.length > 0) {
+            nextNode.borderNodes = borderNodes;
+        }
+
         filteredNodes.push(nextNode);
     }
 
