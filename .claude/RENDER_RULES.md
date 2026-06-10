@@ -290,6 +290,91 @@ Vehicle
 - 계층 계산에는 사용하지 않음
 - containment 이후 연결
 
+### Rule H3-1. FeatureTyping은 계층 생성 금지
+
+featureTyping은 타입 참조(type reference) 관계이며, containment(소유) 또는
+specialization(상속) 관계가 아니다.
+
+featureTyping은 새로운 depth를 생성하지 않는다. 다음과 같은 계산은 금지한다.
+
+```
+typed.depth = feature.depth + 1
+```
+
+featureTyping은 specialization 및 containment 계층 계산(부모-자식 관계, depth,
+subtree 소속)에 참여하지 않는다.
+
+예) `Vehicle └ engine ▼ Engine` 에서 `Engine`을 `Vehicle`의 자식으로 취급하지
+않는다.
+
+### Rule H3-2. FeatureTyping 위치 종속
+
+typed node(예: `Engine`)는 source feature(예: `engine`)의 위치를 변경할 수 없다.
+
+feature의 위치는 containment(H2)가 결정하며, typed node는 feature 위치에
+종속적으로(부속적으로) 연결될 뿐이다.
+
+예) `Vehicle └ engine ▼ Engine` 에서 `Engine`의 존재가 `engine.x`, `engine.y`를
+변경해서는 안 된다. (H2-7의 확장)
+
+### Rule H3-3. FeatureTyping Subtree
+
+feature와 typed node는 하나의 subtree로 계산한다.
+
+```
+engine ▼ Engine
+maxPower ▼ Power
+portA ▼ PowerPort
+```
+
+feature subtree의 폭(width) 계산 시 typed node를 포함한다. (H2-4와 연결)
+
+### Rule H3-4. Shared Type 병합
+
+동일한 typed node는 하나만 렌더링한다.
+
+featureTyping 관계가 여러 feature로부터 동일 타입(예: `engine`, `backupEngine`,
+`spareEngine` → 모두 `Engine`)을 참조하더라도, 타입 정의 노드는 중복 생성하지
+않는다.
+
+### Rule H3-5. FeatureTyping 교차 최소화
+
+featureTyping은 source feature의 바로 아래에 연결하는 것을 우선한다.
+
+우선순위:
+
+1. 수직 연결
+2. 동일 subtree 내부 연결
+3. 최소 bend
+4. 최소 crossing
+
+(O3/O4/O6~O8 라우팅 규칙과 연결)
+
+### Rule H3-6. FeatureTyping Zone
+
+featureTyping은 Structure Zone 내부에서 처리한다.
+
+featureTyping은 Type Hierarchy Zone을 생성하지 않는다. 즉, typed node가
+specialization 노드여도 featureTyping 관계 때문에 Zone A(Type Hierarchy
+Zone)로 이동시키지 않는다.
+
+예) `Canvas └ Layer └ engine ▼ Engine` 에서 `Engine`이 specialization
+계층의 일부여도, featureTyping만으로 Zone A로 옮기는 것은 금지한다.
+
+### Rule H3-7. FeatureTyping Dominance
+
+featureTyping과 specialization이 충돌하는 경우 specialization이 우선한다.
+
+featureTyping과 containment가 충돌하는 경우 containment가 우선한다.
+
+우선순위:
+
+```
+containment > specialization > featureTyping > association
+```
+
+(H2-12의 확장)
+
 ---
 
 ## Rule H4. association 배치 [Priority 5]
