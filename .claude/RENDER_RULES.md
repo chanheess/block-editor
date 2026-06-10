@@ -445,6 +445,257 @@ port
 
 ---
 
+# 2.7. AttributeDefinition 규칙
+
+## Rule A1. AttributeDefinition은 Definition이다.
+
+attributedefinition은 SysML v2의 Value Definition이다.
+
+예)
+
+```text
+maxPower
+maxTorque
+voltage
+capacity
+radius
+width
+height
+```
+
+AttributeDefinition은 Definition 계열 노드로 취급한다.
+
+## Rule A2. AttributeDefinition은 Root Type이 아니다.
+
+AttributeDefinition은 Definition이지만 BDD의 주요 타입 계층(Type Hierarchy)을 구성하지 않는다.
+
+다음 계산에서 제외한다.
+
+- Root Type 결정
+- Parent Set Group 계산
+- Structure Root 계산
+
+즉
+
+```text
+Engine
+ └ maxPower
+```
+
+에서
+
+```text
+maxPower
+   ▲
+ Engine
+```
+
+처럼 되면 안 된다.
+
+## Rule A3. AttributeDefinition은 Owner 내부에 존재한다.
+
+AttributeDefinition이 containment 관계를 가지면 반드시 Owner 내부에 존재해야 한다.
+
+예)
+
+```text
+Engine
+ ├ maxPower
+ ├ maxTorque
+ └ fuelType
+```
+
+이면 모든 AttributeDefinition은 Engine 내부에 배치한다.
+
+Owner 밖으로 이동시키면 안 된다.
+
+(H2-9 / H2-10 연동)
+
+## Rule A4. AttributeDefinition은 Structure Zone에 속한다.
+
+AttributeDefinition은 항상 Owner의 Structure Zone 내부에 존재한다.
+
+```text
+Vehicle
+ └ Engine
+     ├ maxPower
+     └ maxTorque
+```
+
+maxPower와 maxTorque는 Engine 내부에 존재해야 한다.
+
+Type Hierarchy Zone을 생성해서는 안 된다.
+
+(L1~L7 연동)
+
+## Rule A5. Shared AttributeDefinition 단일 렌더링
+
+동일 AttributeDefinition은 한 번만 렌더링한다.
+
+예)
+
+```text
+Rectangle ─► color
+Circle ─────► color
+```
+
+color는 하나만 존재한다.
+
+다음은 금지.
+
+```text
+Rectangle
+ └ color
+
+Circle
+ └ color
+```
+
+(복제)
+
+D5 Shared Definition 규칙을 따른다.
+
+## Rule A6. AttributeDefinition은 FeatureTyping Target이 될 수 있다.
+
+예)
+
+```text
+maxPower
+    ▼
+ Power
+```
+
+여기서 `maxPower = AttributeDefinition`, `Power = Value Type`이다.
+
+AttributeDefinition은 FeatureTyping 관계를 가질 수 있다.
+
+단, FeatureTyping은 AttributeDefinition의 위치를 변경할 수 없다.
+
+(H3-2 연동)
+
+## Rule A7. AttributeDefinition Dominance
+
+AttributeDefinition은 위치 결정 권한을 가지지 않는다.
+
+우선순위
+
+```text
+containment
+>
+specialization
+>
+featureTyping
+>
+attributeDefinition
+>
+association
+```
+
+AttributeDefinition 때문에 Owner를 이동시키면 안 된다.
+
+반대로 Owner 위치가 결정된 후 AttributeDefinition이 이동하는 것은 허용된다.
+
+## Rule A8. AttributeDefinition은 Specialization Zone을 생성하지 않는다.
+
+AttributeDefinition이 specialization 관계를 가지더라도 독립적인 Type Hierarchy Zone을 만들지 않는다.
+
+예)
+
+```text
+Power
+ ▲
+RatedPower
+```
+
+는 가능하지만,
+
+```text
+Shape
+Polygon
+Rectangle
+Power
+RatedPower
+```
+
+처럼 별도 타입 계층 축을 만들지는 않는다.
+
+AttributeDefinition 계열 specialization은 Owner 내부 또는 Value-Type Cluster 내부에서만 표현한다.
+
+## Rule A9. AttributeDefinition은 PortDefinition보다 우선 배치
+
+Owner 내부 배치 순서
+
+```text
+Attributes
+↓
+Ports
+```
+
+권장 구조
+
+```text
+Rectangle
+├ Attributes
+│  ├ width
+│  ├ height
+│  ├ color
+│
+└ Ports
+   └ GeomPort
+```
+
+즉
+
+```text
+width
+GeomPort
+height
+ColorPort
+```
+
+처럼 섞지 않는다.
+
+## Rule A10. Attribute Cluster 유지
+
+동일 Owner의 AttributeDefinition들은 하나의 Attribute Cluster로 묶어 배치한다.
+
+예)
+
+```text
+Engine
+ ├ maxPower
+ ├ maxTorque
+ ├ rpm
+ └ voltage
+```
+
+우선순위
+
+1. 동일 Owner
+2. 동일 Y 영역
+3. 최소 간격
+4. 좌측 정렬
+
+속성끼리 흩어져 배치하는 것을 금지한다.
+
+## Rule A11. AttributeDefinition은 Leaf Node이다.
+
+AttributeDefinition은 기본적으로 Leaf로 취급한다.
+
+즉 `maxPower` 아래에 다시 containment subtree를 생성하지 않는다.
+
+예외:
+
+```text
+maxPower
+   ▼
+ Power
+```
+
+같은 FeatureTyping 연결만 허용한다.
+
+---
+
 # 3. 계층 규칙
 
 ## Rule H0. 최상위 부모(Root Type) 최상단 배치 [Priority 1]
