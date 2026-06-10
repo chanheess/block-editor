@@ -894,6 +894,11 @@
       const child = e.source;
       const parent = e.target;
       if (!nodeById.has(child) || !nodeById.has(parent)) continue;
+      // Rule D6/D7: partusage는 specialization 계층의 구성원이 아니며
+      // Root Type/depth 계산에서 제외한다. usage가 관여하는 specialization
+      // edge는 spec 그래프 구축 단계에서 제외한다.
+      const isUsage = (nid) => String(nodeById.get(nid)?.kind || nodeById.get(nid)?.type || '').toLowerCase().includes('usage');
+      if (isUsage(child) || isUsage(parent)) continue;
       if (!specParentsOf.has(child)) specParentsOf.set(child, []);
       specParentsOf.get(child).push(parent);
       if (!specChildrenOf.has(parent)) specChildrenOf.set(parent, []);
