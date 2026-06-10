@@ -425,7 +425,8 @@
         const srcIsBorderNode = sourceCell._isBorderNode === true;
         const tgtIsBorderNode = targetCell._isBorderNode === true;
         const borderNodeFeaturetyping = (srcIsBorderNode || tgtIsBorderNode) && edgeTypeLower === 'featuretyping';
-        const hasElkWaypoints = !borderNodeFeaturetyping && edge.waypoints && Array.isArray(edge.waypoints) && edge.waypoints.length >= 2;
+        const isAssocOrConnector = edgeTypeLower === 'association' || edgeTypeLower === 'connector';
+        const hasElkWaypoints = !borderNodeFeaturetyping && !isAssocOrConnector && edge.waypoints && Array.isArray(edge.waypoints) && edge.waypoints.length >= 2;
 
         // Rule O15 (Edge Anchor Consistency): featureTyping은 source.bottom -> target.top
         // anchor로 고정한다 (O11로 feature가 typed 바로 위에 인접 배치되므로 자연스럽게 직선이 됨).
@@ -453,20 +454,17 @@
                 } else {
                     style += ';exitX=0.5;exitY=1;exitPerimeter=0;entryX=0.5;entryY=0;entryPerimeter=0';
                 }
+            } else if ((edgeTypeLower === 'association' || edgeTypeLower === 'connector') &&
+                       edge._assocExit && edge._assocEntry) {
+                // Rule O15-2: featureTyping과 동일하게 상대 위치 기준 side anchor를
+                // 고정해 단일 꺾임의 짧은 경로가 나오도록 한다.
+                style += `;${sideExitStyle(edge._assocExit)};${sideEntryStyle(edge._assocEntry)};orthogonalLoop=0;jettySize=0`;
             }
         }
 
         if (!hasElkWaypoints) {
             let exitStyle = getBorderNodeExitStyle(sourceCell);
             let entryStyle = getBorderNodeEntryStyle(targetCell);
-
-            // Rule H4-7 (Association Anchor): association/connector 엣지는
-            // ELK waypoint가 없는 경우(주로 cross-container) source/target의 상대 위치에
-            // 기반한 anchor(side)를 사용해 가장 가까운 외곽으로 연결한다.
-            if (!exitStyle && !entryStyle && (edgeTypeLower === 'association' || edgeTypeLower === 'connector')) {
-                if (edge._assocExit) exitStyle = sideExitStyle(edge._assocExit);
-                if (edge._assocEntry) entryStyle = sideEntryStyle(edge._assocEntry);
-            }
 
             if (exitStyle) style += `;${exitStyle}`;
             if (entryStyle) style += `;${entryStyle}`;

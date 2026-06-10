@@ -1367,6 +1367,30 @@ target.top), 그렇지 않은 경우(같은 레벨/옆쪽 배치 등) bottom→t
 
 ---
 
+## Rule O15-2. Association/Connector Anchor 고정 + Stale Waypoint 제거
+
+association/connector 엣지가 `orthogonalEdgeStyle`의 기본 exit/entry(자유 anchor)와
+ELK가 계산한 stale waypoints를 그대로 사용하면, 막는 노드가 없어도 화면을 크게
+우회하는 사각형 경로(예: Engine→Transmission, RenderEngine→Rectangle)가 생긴다.
+
+1. **Anchor 고정(side anchor)**: source/target 중심의 dx/dy를 비교해 더 가까운
+   쪽 면을 `_assocExit`/`_assocEntry`(N/S/E/W)로 고정하고, featureTyping과 동일하게
+   `sideExitStyle`/`sideEntryStyle` + `orthogonalLoop=0;jettySize=0`을 적용해
+   단일 꺾임의 짧은 경로를 만든다.
+
+2. **Stale ELK Waypoint 제거**: association/connector 엣지는 featureTyping과
+   동일하게 ELK의 원본 `edge.waypoints`/`geometry.points`를 사용하지 않는다
+   (`hasElkWaypoints`를 association/connector에 대해 항상 false로 처리). stale
+   waypoint가 남아있으면 anchor를 고정해도 그 점을 거쳐가는 큰 우회 경로가
+   강제로 삽입된다.
+
+> 구현 위치: `elkLayout.js`(association/connector 앵커 계산 루프, 기존 `_assocExit`/
+> `_assocEntry` 계산 재사용), `MxEdgeBuilder.js`(`isAssocOrConnector`일 때
+> `hasElkWaypoints=false` 강제, `_assocExit`/`_assocEntry` → side anchor +
+> `orthogonalLoop=0;jettySize=0` 적용).
+
+---
+
 ## Rule O16. Edge Rendering Pipeline
 
 엣지 관련 규칙(O9~O15)은 서로 독립적이지 않으며, 다음 파이프라인 순서로 적용되어야 한다. 순서를 어기면 (예: Spine 계산 후 Boundary Routing이 Spine을 깨뜨리는 등) 규칙 간 충돌이 발생할 수 있다.
