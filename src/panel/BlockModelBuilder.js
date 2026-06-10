@@ -152,8 +152,13 @@ function buildDirectParentMap(nodes, edges, resolveNodeKey, nodeByKey) {
         for (const childKey of children) {
             if (parentCountByChild.get(childKey) === 1) {
                 directParentMap.set(childKey, parentKey);
+            } else if (!directParentMap.has(childKey)) {
+                // Rule D5 (Shared Definition 단일 렌더링): 부모가 여러 개인 공유 정의는
+                // 복제하지 않고 첫 번째 containment 부모에 귀속시킨다.
+                // (이전에는 최상위로 띄웠으나, 그러면 어느 컨테이너에도 속하지 못하고
+                //  캔버스에 고아 노드로 남는 문제가 발생)
+                directParentMap.set(childKey, parentKey);
             }
-            // 부모가 여러 개인 노드는 공유 정의 → 최상위(top-level) 처리
         }
     }
 

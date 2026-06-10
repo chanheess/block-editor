@@ -965,6 +965,7 @@
       return set;
     }
 
+
     // Rule H2-6: parent.width/height = containment 자식들의 union bbox(+padding)를 덮도록 보정.
     // ELK가 일부 컴파운드 노드(예: Vehicle)의 박스 크기를 자식 전체(예: PowerTrain)를
     // 포함하지 못하게 산출한 경우, 자식이 부모 박스 밖으로 넘치는 문제를 해결한다.
@@ -1262,10 +1263,17 @@
           const fw = feature.width || 120;
           const tw = typed.width || 120;
 
+          const typedOldX = typed.x || 0;
+          const typedOldY = typed.y || 0;
           typed.x = fx + fw / 2 - tw / 2 + offsetX;
           typed.y = fy + (feature.height || 60) + FT_GAP_Y;
           typed.relativeX = typed.x;
           typed.relativeY = typed.y;
+
+          // H2-1: typed가 containment 자식(예: x/y/width/height/color 등 attributedefinition)을
+          // 가지고 있다면, typed 이동량만큼 자식 서브트리도 함께 이동시켜
+          // 자식이 부모 박스 밖에 홀로 남는 것을 방지한다.
+          moveSubtree(typed.id, typed.x - typedOldX, typed.y - typedOldY, collectSubtreeIds(typed.id, new Set()));
 
           stackOffsetXBelow.set(feature.id, offsetX + tw + FT_GAP_X);
           placedTyped.add(typed.id);
@@ -1279,6 +1287,8 @@
           const fw = feature.width || 120;
           const fh = feature.height || 60;
 
+          const featureOldX = feature.x || 0;
+          const featureOldY = feature.y || 0;
           feature.x = tx + tw / 2 - fw / 2 + offsetX;
           feature.y = ty - fh - FT_GAP_Y;
           if (feature.parent) {
@@ -1290,6 +1300,9 @@
             feature.relativeY = feature.y;
           }
 
+          // H2-1: feature가 containment 자식을 가지고 있다면 함께 이동
+          moveSubtree(feature.id, feature.x - featureOldX, feature.y - featureOldY, collectSubtreeIds(feature.id, new Set()));
+
           stackOffsetXAbove.set(typed.id, offsetX + fw + FT_GAP_X);
           placedFeature.add(feature.id);
         }
@@ -1297,6 +1310,7 @@
         // Case D: 둘 다 위치 미확정 → 현재 단계에서는 처리하지 않음 (기존 ELK 배치 유지)
       }
     }
+
 
     // Rule H4-1~H4-4: association은 계층/위치/zone에 영향을 주지 않는다.
     // (childrenOf, allSpecNodes, Case A/B 위치 계산 어디에도 association은 사용되지 않음 — 유지)
