@@ -536,10 +536,15 @@
             } catch {}
         }
 
+        // 컨테이너 너비가 이후 단계(ports 섹션 등)에서 더 늘어날 수 있으므로,
+        // 여기서 만든 구분선들의 x2를 모아뒀다가 함수 끝에서 최종 element.width에
+        // 맞춰 일괄 보정한다(구분선이 박스 테두리 밖으로 삐져나오는 것 방지).
+        const sepLines = [];
         let y = element.y + headerH + 4;
         if (!isPackageC) {
             const sep = ns.Editor.renderUtils.createSvgLine(element.x, y, element.x + element.width, y, 'comp-sep');
             group.appendChild(sep);
+            sepLines.push(sep);
             y += 6;
         }
 
@@ -552,6 +557,7 @@
             if (ci > 0) {
                 const compSep = ns.Editor.renderUtils.createSvgLine(element.x, y, element.x + element.width, y, 'comp-sep');
                 group.appendChild(compSep);
+                sepLines.push(compSep);
                 y += 6;
             }
             
@@ -619,6 +625,7 @@
 
             const sep = ns.Editor.renderUtils.createSvgLine(element.x, py, element.x + element.width, py, 'comp-sep');
             group.appendChild(sep);
+            sepLines.push(sep);
             py += 6;
 
             for (const comp of portCompartments) {
@@ -639,6 +646,11 @@
                     py += lineHeight;
                 }
             }
+        }
+
+        // 최종 element.width(=rect 너비)에 맞춰 모든 구분선의 x2를 보정한다.
+        for (const line of sepLines) {
+            line.setAttribute('x2', String(element.x + element.width));
         }
     }
 

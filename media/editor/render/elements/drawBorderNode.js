@@ -117,11 +117,15 @@
                 labelY = pos.y + size / 2 + 14;
                 textAnchor = 'middle';
             } else {
-                // 모든 방향에서 Border Node 아래에 레이블 표시
-                if (side === 'E' || side === 'W') {
-                    labelX = pos.x;
-                    labelY = pos.y + size / 2 + 14;
-                    textAnchor = 'middle';
+                // E/W: 박스 경계선과 겹치지 않도록 아이콘 옆(바깥쪽)에 표시
+                if (side === 'E') {
+                    labelX = pos.x + size / 2 + 4;
+                    labelY = pos.y + 4;
+                    textAnchor = 'start';
+                } else if (side === 'W') {
+                    labelX = pos.x - size / 2 - 4;
+                    labelY = pos.y + 4;
+                    textAnchor = 'end';
                 } else if (side === 'N') {
                     labelX = pos.x;
                     labelY = pos.y - size / 2 - 4;
