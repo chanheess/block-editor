@@ -1612,6 +1612,9 @@
       };
       const containers = elements.filter(n => childrenOf.has(n.id));
 
+      // O12 1차 패스: 각 spec/containment 엣지의 양 끝점(x1,y1,x2,y2)과
+      // 탈출해야 하는 blocker 컨테이너 우측 경계(blockerMaxX)를 계산한다.
+      const escapeRoutes = []; // { e, x1, y1, x2, y2, blockerMaxX, targetHasVirtual }
       for (const e of connections) {
         const kind = String(e.kind || e.type || '').toLowerCase();
         if (!['specialization', 'generalization', 'inheritance', 'containment'].includes(kind)) continue;
@@ -1653,6 +1656,32 @@
           }
         }
 
+        escapeRoutes.push({ e, x1, y1, x2, y2, blockerMaxX, targetHasVirtual });
+      }
+
+      // Rule O9 (Channel Separation): 같은 컨테이너 우측 경계(blockerMaxX)를 탈출하는
+      // 엣지들이 모두 동일한 routeX(=blockerMaxX+margin)를 쓰면 수직 세그먼트가 한 줄에
+      // 겹치고, 서로 다른 타겟 Y로 갈라지며 교차한다. blockerMaxX가 같은(≈) 엣지들을
+      // 그룹으로 묶어 타겟 Y 순으로 정렬한 뒤 각자 별도 레인(채널 X)을 배정해
+      // 평행하게 분산시킨다.
+      const margin = 30;
+      const CHANNEL_GAP = 18;
+      const groups = new Map(); // round(blockerMaxX) → route[]
+      for (const r of escapeRoutes) {
+        if (r.blockerMaxX === -Infinity) continue;
+        const key = Math.round(r.blockerMaxX / 5) * 5;
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(r);
+      }
+      for (const [, arr] of groups) {
+        // 타겟 Y 오름차순 정렬 → 위로 가는 엣지가 안쪽(작은 채널), 아래가 바깥쪽 레인
+        arr.sort((a, b) => a.y2 - b.y2);
+        arr.forEach((r, i) => { r._channel = i; });
+      }
+
+      // O12 2차 패스: 채널을 반영해 waypoints를 확정한다.
+      for (const r of escapeRoutes) {
+        const { e, x1, y1, x2, y2, blockerMaxX, targetHasVirtual } = r;
         if (blockerMaxX === -Infinity) {
           if (!targetHasVirtual) continue;
           // 가림은 없지만 가상 entry 방향을 적용하기 위해 2점(start/end)만 기록한다.
@@ -1662,15 +1691,68 @@
           ];
           continue;
         }
-
-        const margin = 30;
-        const routeX = blockerMaxX + margin;
+        const routeX = blockerMaxX + margin + (r._channel || 0) * CHANNEL_GAP;
         e.waypoints = [
           { x: x1, y: y1 },
           { x: routeX, y: y1 },
           { x: routeX, y: y2 },
           { x: x2, y: y2 },
         ];
+      }
+
+      // Rule O9-1 (Horizontal Lane Avoidance): escape 경로의 수평 세그먼트가
+      // 관계없는 leaf 노드 위를 지나면(엣지-노드 중첩), 해당 세그먼트만 노드 위쪽
+      // 빈 Y대로 살짝 들어올려(bump) 통과시킨다. 노드 위치는 그대로 두고 엣지만
+      // 우회하므로 다른 규칙을 침범하지 않으며, 겹침이 없으면 no-op이라 안전하다.
+      {
+        const LANE_GAP = 14;
+        const X_MARGIN = 6;
+        // 회피 대상: leaf 노드(자식 없음)만. 컨테이너 박스는 엣지가 드나드는 게
+        // 정상이므로 제외한다.
+        const leafBoxes = elements
+          .filter(n => !childrenOf.has(n.id))
+          .map(n => ({ id: n.id, x1: n.x || 0, y1: n.y || 0, x2: (n.x || 0) + (n.width || 0), y2: (n.y || 0) + (n.height || 0) }));
+
+        const related = (boxId, e) => {
+          // 엣지의 끝점, 또는 끝점의 조상(컨테이너)만 정상 연결로 본다.
+          // 끝점의 자손(예: source 컨테이너의 속성 자식 width/x/y)은 가로지르면
+          // 안 되므로 회피 대상으로 포함한다.
+          if (boxId === e.source || boxId === e.target) return true;
+          if (isAncestor(boxId, e.source) || isAncestor(boxId, e.target)) return true;
+          return false;
+        };
+
+        for (const r of escapeRoutes) {
+          const e = r.e;
+          if (!Array.isArray(e.waypoints) || e.waypoints.length < 2) continue;
+          const pts = e.waypoints;
+          const out = [pts[0]];
+          for (let i = 1; i < pts.length; i++) {
+            const A = pts[i - 1];
+            const B = pts[i];
+            // 수평 세그먼트만 검사
+            if (Math.abs(A.y - B.y) < 0.5 && Math.abs(A.x - B.x) > 1) {
+              const Y = A.y;
+              const segL = Math.min(A.x, B.x);
+              const segR = Math.max(A.x, B.x);
+              let topMost = Infinity;
+              for (const b of leafBoxes) {
+                if (related(b.id, e)) continue;
+                if (Y > b.y1 && Y < b.y2 && segR > b.x1 - X_MARGIN && segL < b.x2 + X_MARGIN) {
+                  topMost = Math.min(topMost, b.y1);
+                }
+              }
+              if (topMost !== Infinity) {
+                const laneY = topMost - LANE_GAP;
+                // A → (A.x,laneY) → (B.x,laneY) → B : 노드 위로 bump
+                out.push({ x: A.x, y: laneY });
+                out.push({ x: B.x, y: laneY });
+              }
+            }
+            out.push(B);
+          }
+          e.waypoints = out;
+        }
       }
     }
 

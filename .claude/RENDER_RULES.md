@@ -1316,6 +1316,43 @@ association 또는 featureTyping 엣지가 containment container 경계를 벗�
 
 ---
 
+## Rule O12-1. Channel Separation (탈출 엣지 레인 분리)
+
+같은 컨테이너 우측 경계(`blockerMaxX`)를 탈출하는 escape 엣지들이 모두 동일한
+`routeX = blockerMaxX + margin`을 쓰면 수직 세그먼트가 한 줄에 겹치고, 서로 다른
+타겟 Y로 갈라지며 교차한다.
+
+- `blockerMaxX`가 같은(≈5px) 엣지들을 그룹으로 묶고 **타겟 Y 오름차순으로 정렬**한
+  뒤 각자 별도 레인(`routeX = blockerMaxX + margin + channel*CHANNEL_GAP`)을 배정해
+  수직 세그먼트를 평행하게 분산시킨다.
+- 위로 가는 엣지가 안쪽(작은 채널), 아래가 바깥쪽 레인을 쓰도록 정렬해 교차를 줄인다.
+
+> 구현 위치: `elkLayout.js` O12 라우팅 2-패스(1차 blockerMaxX 계산 → 그룹·채널 배정
+> → 2차 waypoints 확정).
+
+---
+
+## Rule O12-2. Horizontal Lane Avoidance (수평 세그먼트 노드 회피)
+
+escape 경로의 수평 세그먼트가 관계없는 leaf 노드 위를 지나면(엣지-노드 중첩),
+그 세그먼트만 노드 위쪽 빈 Y대로 살짝 들어올려(bump) 통과시킨다.
+
+- 회피 대상은 **leaf 노드만**(컨테이너 박스는 엣지가 드나드는 게 정상이므로 제외).
+- 엣지의 끝점, 또는 끝점의 **조상(컨테이너)**만 정상 연결로 보고 회피하지 않는다.
+  끝점의 **자손**(예: source 컨테이너의 속성 자식 width/x/y)은 가로지르면 안 되므로
+  회피 대상에 포함한다.
+- 겹침이 없으면 no-op이라 안전하며, 노드는 움직이지 않고 엣지만 우회한다.
+
+> **알려진 한계**: free spec 노드(Square/RightTriangle/EquilateralTriangle)가 L7
+> 가상 좌표를 가진 dual-role 부모(Triangle/Rectangle)를 상속하는 역방향 엣지는,
+> waypoint 끝점이 존 안에 찍히고 실제 셀까지의 마지막 구간을 mxGraph가 자동으로
+> 그리므로 O12-2가 닿지 못한다. 이 케이스는 노드 배치(L7) 변경이라야 해소된다.
+
+> 구현 위치: `elkLayout.js` O12 라우팅 직후 후처리(수평 세그먼트별 leaf 노드 overlap
+> 검사 후 bump 점 삽입).
+
+---
+
 ## Rule O13. Edge Crossing Cost
 
 라우팅 경로 선택은 다음 비용 함수를 최소화하는 방향으로 이루어진다.
