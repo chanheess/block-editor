@@ -65,6 +65,70 @@ ECU ─────► Engine
 
 ---
 
+# 2.5. PartDefinition / PartUsage 규칙
+
+## Rule D1. PartDefinition은 타입 노드이다.
+
+partdefinition은 SysML v2 BDD의 기본 타입(Type)을 나타낸다.
+
+다음 관계의 기준 노드가 된다.
+
+- specialization
+- containment
+- featureTyping의 typed node
+- association
+
+BDD 계층 계산의 기준은 항상 partdefinition이다.
+
+## Rule D2. PartDefinition은 containment root가 될 수 있다.
+
+containment 관계의 parent는 기본적으로 partdefinition으로 간주한다.
+
+partdefinition은 Structure Zone의 루트가 될 수 있다.
+
+## Rule D3. Definition과 Usage는 구분한다.
+
+partdefinition은 타입이다.
+
+partusage는 타입의 사용 피처이다.
+
+partusage는 partdefinition과 동일한 계층으로 배치할 수 없다.
+
+partusage는 Definition을 참조(featureTyping)할 수 있으나
+Definition 자체를 대체할 수 없다.
+
+## Rule D4. PartDefinition 우선 렌더링
+
+partdefinition의 위치는
+specialization 및 containment 규칙으로 먼저 결정한다.
+
+partusage의 위치는
+featureTyping 단계에서 결정한다.
+
+partusage는 partdefinition의 위치를 변경할 수 없다.
+(H3-2와 연동)
+
+## Rule D5. Shared PartDefinition 단일 렌더링
+
+동일한 partdefinition은 BDD 내에서 한 번만 렌더링한다.
+
+여러 partusage가 동일 partdefinition을 참조하더라도
+partdefinition 노드를 복제하지 않는다.
+
+예)
+
+```text
+engine_p
+backupEngine_p
+testEngine_p
+      ▼
+    Engine
+```
+
+Engine은 1개만 그린다. (H3-4와 연동)
+
+---
+
 # 3. 계층 규칙
 
 ## Rule H0. 최상위 부모(Root Type) 최상단 배치 [Priority 1]
