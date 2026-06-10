@@ -1263,6 +1263,19 @@
       const isPositionFixed = (node) =>
         allSpecNodes.has(node.id) || (childrenOf.get(node.id) || []).length > 0 || !!node.parent;
 
+      // O11/D10: partusage 리프 노드(자신은 containment 자식도 없고 specialization에도
+      // 참여하지 않는, 예: engine/layer/circle/rect)는 단순히 Canvas 등의 containment
+      // 자식이라는 이유만으로 위치가 "확정"된 것으로 보지 않는다. 이런 feature는
+      // featureTyping target(typed) 바로 인접에 배치되어야 장거리 엣지(O11 위반)가
+      // 발생하지 않는다.
+      const isUsage = (nid) => String(nodeById.get(nid)?.kind || nodeById.get(nid)?.type || '').toLowerCase().includes('usage');
+      const isFeatureFixed = (node) => {
+        if (isUsage(node.id) && (childrenOf.get(node.id) || []).length === 0 && !allSpecNodes.has(node.id)) {
+          return false;
+        }
+        return isPositionFixed(node);
+      };
+
       for (const e of connections) {
         const kind = String(e.kind || e.type || '').toLowerCase();
         if (kind !== 'featuretyping') continue;
@@ -1271,7 +1284,7 @@
         const typed = nodeById.get(e.target);
         if (!feature || !typed) continue;
 
-        const featureFixed = isPositionFixed(feature);
+        const featureFixed = isFeatureFixed(feature);
         const typedFixed = isPositionFixed(typed);
 
         if (featureFixed && !typedFixed) {
@@ -1311,9 +1324,10 @@
           // 먼저 배치된 형제 노드(Triangle 등)나 같은 컨테이너를 가리키는 다른 feature와
           // 겹친다. 동일 컨테이너를 anchor로 공유하는 feature들은 같은 Y에 정렬하고
           // (D10 "동일 Y 정렬") stackOffsetXAbove로 가로 위치만 분리한다.
-          const typedParent = typed.parent ? nodeById.get(typed.parent) : null;
-          const anchorY = typedParent ? (typedParent.y || 0) : ty;
-          const offsetKey = typedParent ? typedParent.id : typed.id;
+          // O11: feature를 typed 컨테이너의 최상단이 아니라 typed 노드 바로 위에
+          // 인접 배치하여 장거리 엣지를 제거한다 (typed별로 anchor를 분리).
+          const anchorY = ty;
+          const offsetKey = typed.id;
           const offsetX = stackOffsetXAbove.get(offsetKey) || 0;
 
           const featureOldX = feature.x || 0;
