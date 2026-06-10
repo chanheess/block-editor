@@ -1218,6 +1218,86 @@
       e._specEntryX = Math.max(0, Math.min(1, (childCX - parentX) / parentW));
     }
 
+    // Rule H3-1~H3-7: featureTyping 노드 배치
+    // - H3-1: featureTyping은 depth/계층 계산에 참여하지 않음 (allSpecNodes/specLevel에 미반영, 이미 보장됨)
+    // - H3-2: typed node는 source feature의 위치를 변경하지 않음 (feature.x/y 불변)
+    // - H3-3/H3-5: feature 바로 아래(수직)에 typed node를 배치 (subtree 폭 계산은 이후 단계에서 자연 반영)
+    // - H3-4: 동일 typed node는 한 번만 배치 (중복 생성 없음 — 모델상 단일 노드이므로 위치도 1회만 결정)
+    // - H3-6: featureTyping은 Type Hierarchy Zone(Zone A)을 생성하지 않음 → allSpecNodes에 속한
+    //   typed node(자체로 specialization 계층의 일부)는 건드리지 않음
+    // - H3-7: containment > specialization > featureTyping > association
+    //   → 이미 위치가 결정된 노드(containment 자식이거나 spec 레벨 배치 대상)는 재배치하지 않음
+    {
+      const FT_GAP_Y = 50;
+      const FT_GAP_X = 30;
+      const placedTyped = new Set();
+      const placedFeature = new Set();
+      const stackOffsetXBelow = new Map(); // featureId → typed node를 아래에 쌓을 때의 누적 가로 오프셋
+      const stackOffsetXAbove = new Map(); // typedId → feature를 위에 쌓을 때의 누적 가로 오프셋
+
+      // H3-7: containment 부모(자식을 가진 노드) 또는 specialization 레벨 배치 대상은
+      // 위치가 이미 확정된 노드로 본다 (containment/specialization이 featureTyping보다 우선).
+      // 단순 partusage 리프 노드(자식 없음 + specialization 미참여)는 부모(Canvas 등)에
+      // 속해 있더라도 그 위치가 featureTyping 외에는 의미를 갖지 않으므로 "미확정"으로 본다.
+      const isPositionFixed = (node) =>
+        allSpecNodes.has(node.id) || (childrenOf.get(node.id) || []).length > 0;
+
+      for (const e of connections) {
+        const kind = String(e.kind || e.type || '').toLowerCase();
+        if (kind !== 'featuretyping') continue;
+
+        const feature = nodeById.get(e.source);
+        const typed = nodeById.get(e.target);
+        if (!feature || !typed) continue;
+
+        const featureFixed = isPositionFixed(feature);
+        const typedFixed = isPositionFixed(typed);
+
+        if (featureFixed && !typedFixed) {
+          // Case A: feature 위치 확정, typed 위치 미확정 → typed를 feature 아래 배치
+          if (placedTyped.has(typed.id)) continue;
+          const offsetX = stackOffsetXBelow.get(feature.id) || 0;
+          const fx = feature.x || 0;
+          const fy = feature.y || 0;
+          const fw = feature.width || 120;
+          const tw = typed.width || 120;
+
+          typed.x = fx + fw / 2 - tw / 2 + offsetX;
+          typed.y = fy + (feature.height || 60) + FT_GAP_Y;
+          typed.relativeX = typed.x;
+          typed.relativeY = typed.y;
+
+          stackOffsetXBelow.set(feature.id, offsetX + tw + FT_GAP_X);
+          placedTyped.add(typed.id);
+        } else if (!featureFixed && typedFixed) {
+          // Case B: typed 위치 확정, feature 위치 미확정 → feature를 typed 근처(위쪽)에 배치
+          if (placedFeature.has(feature.id)) continue;
+          const offsetX = stackOffsetXAbove.get(typed.id) || 0;
+          const tx = typed.x || 0;
+          const ty = typed.y || 0;
+          const tw = typed.width || 120;
+          const fw = feature.width || 120;
+          const fh = feature.height || 60;
+
+          feature.x = tx + tw / 2 - fw / 2 + offsetX;
+          feature.y = ty - fh - FT_GAP_Y;
+          if (feature.parent) {
+            const par = nodeById.get(feature.parent);
+            feature.relativeX = feature.x - (par?.x || 0);
+            feature.relativeY = feature.y - (par?.y || 0);
+          } else {
+            feature.relativeX = feature.x;
+            feature.relativeY = feature.y;
+          }
+
+          stackOffsetXAbove.set(typed.id, offsetX + fw + FT_GAP_X);
+          placedFeature.add(feature.id);
+        }
+        // Case C: 둘 다 위치 확정 → 위치 변경 없이 edge routing만 수행
+        // Case D: 둘 다 위치 미확정 → 현재 단계에서는 처리하지 않음 (기존 ELK 배치 유지)
+      }
+    }
+
     // guiData 복원 방지 플래그
     diagramData._customLayoutApplied = true;
   }
