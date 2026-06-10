@@ -410,6 +410,16 @@
         const borderNodeFeaturetyping = (srcIsBorderNode || tgtIsBorderNode) && edgeTypeLower === 'featuretyping';
         const hasElkWaypoints = !borderNodeFeaturetyping && edge.waypoints && Array.isArray(edge.waypoints) && edge.waypoints.length >= 2;
 
+        // Rule O15 (Edge Anchor Consistency): featureTyping은 source.bottom -> target.top
+        // anchor로 고정한다 (O11로 feature가 typed 바로 위에 인접 배치되므로 자연스럽게 직선이 됨).
+        // specialization/containment은 parent가 child보다 아래/옆에 위치하는 경우가 많아
+        // top/bottom 고정 anchor가 오히려 큰 우회를 유발하므로 기존 동적 anchor를 유지한다.
+        if (!srcIsBorderNode && !tgtIsBorderNode) {
+            if (edgeTypeLower === 'featuretyping') {
+                style += ';exitX=0.5;exitY=1;exitPerimeter=0;entryX=0.5;entryY=0;entryPerimeter=0';
+            }
+        }
+
         if (!hasElkWaypoints) {
             let exitStyle = getBorderNodeExitStyle(sourceCell);
             let entryStyle = getBorderNodeEntryStyle(targetCell);
