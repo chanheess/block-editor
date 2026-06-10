@@ -67,7 +67,10 @@
           'elk.layered.spacing.edgeNodeBetweenLayers': String(ELK_CFG?.edgeNodeBetweenLayers ?? 40),
           'elk.spacing.edgeNode': String(ELK_CFG?.edgeNodeSpacing ?? 40),
           'elk.layered.considerModelOrder.strategy': ELK_CFG?.modelOrderStrategy ?? 'NODES_AND_EDGES',
-          'elk.layered.nodePlacement.strategy': ELK_CFG?.nodePlacement ?? 'NETWORK_SIMPLEX',
+          'elk.layered.nodePlacement.strategy': ELK_CFG?.nodePlacement ?? 'BRANDES_KOEPF',
+          'elk.layered.nodePlacement.bk.fixedAlignment': ELK_CFG?.nodePlacementBkAlign ?? 'BALANCED',
+          'elk.layered.nodePlacement.favorStraightEdges': 'true',
+          'elk.layered.unnecessaryBendpoints': 'true',
           'elk.edgeRouting': ELK_CFG?.edgeRouting ?? 'ORTHOGONAL',
           'elk.spacing.edgeEdge': String(ELK_CFG?.edgeEdgeSpacing ?? 15),
           'elk.spacing.edgeEdgeBetweenLayers': String(ELK_CFG?.edgeEdgeBetweenLayers ?? 15),
@@ -145,6 +148,19 @@
           }
           if (!s || !t || s === t) {
             continue;
+          }
+          // specialization 엣지: ELK 레이아웃에서 제외
+          // (computeCustomBDDLayout이 spec 노드를 별도 배치하므로 ELK 경로는 무의미)
+          if (kindLower === 'specialization' || kindLower === 'inheritance' || kindLower === 'generalization') {
+            continue;
+          }
+          // cross-container association/connector: ELK에서 제외 (레이아웃 왜곡 방지)
+          if (kindLower === 'association' || kindLower === 'connector') {
+            const sNode = nodeById.get(s);
+            const tNode = nodeById.get(t);
+            const sParent = sNode?.parent || '';
+            const tParent = tNode?.parent || '';
+            if (sParent !== tParent) continue;
           }
           // cross-container featuretyping 엣지는 ELK에서 제외
           // (내부→외부 연결이 컨테이너 레이아웃을 왜곡하므로 mxGraph auto-routing에 위임)
@@ -758,6 +774,10 @@
       }
       applyPositions(result, 0, 0);
 
+      // BDD specialization 커스텀 레이아웃 적용
+      clampChildrenToParent(diagramData.elements, nodeById);
+      computeCustomBDDLayout(diagramData, nodeById);
+
       /**
        * ELK 엣지 라우팅 결과를 diagramData.connections에 적용
        * @param {Object} elkNode - ELK 레이아웃 결과 노드
@@ -841,6 +861,176 @@
       fallbackGrid(diagramData);
     }
   };
+
+  // compound 자식 노드를 부모 경계 안으로 클램핑
+  function clampChildrenToParent(elements, nodeById) {
+    const PADDING = 30;
+    for (const n of elements) {
+      if (!n.parent) continue;
+      const parent = nodeById.get(n.parent);
+      if (!parent) continue;
+      const minX = (parent.x || 0) + PADDING;
+      const minY = (parent.y || 0) + PADDING;
+      const maxX = (parent.x || 0) + (parent.width || 0) - PADDING - (n.width || 0);
+      const maxY = (parent.y || 0) + (parent.height || 0) - PADDING - (n.height || 0);
+      n.x = Math.min(Math.max(n.x || 0, minX), Math.max(minX, maxX));
+      n.y = Math.min(Math.max(n.y || 0, minY), Math.max(minY, maxY));
+    }
+  }
+
+  // SysML BDD specialization 계층 커스텀 레이아웃
+  // ELK 결과 위에서 spec 관계 기반 노드를 재배치
+  function computeCustomBDDLayout(diagramData, nodeById) {
+    const elements = diagramData.elements || [];
+    const connections = diagramData.connections || [];
+
+    // spec 그래프 구축 (data: source=subtype, target=supertype)
+    const specParentsOf = new Map();  // nodeId → [parentIds]
+    const specChildrenOf = new Map(); // nodeId → [childIds]
+
+    for (const e of connections) {
+      const kind = String(e.kind || e.type || '').toLowerCase();
+      if (kind !== 'specialization' && kind !== 'inheritance' && kind !== 'generalization') continue;
+      const child = e.source;
+      const parent = e.target;
+      if (!nodeById.has(child) || !nodeById.has(parent)) continue;
+      if (!specParentsOf.has(child)) specParentsOf.set(child, []);
+      specParentsOf.get(child).push(parent);
+      if (!specChildrenOf.has(parent)) specChildrenOf.set(parent, []);
+      specChildrenOf.get(parent).push(child);
+    }
+
+    if (specParentsOf.size === 0) return;
+
+    // spec 레벨 계산 (longest-path, 메모이제이션)
+    const specLevel = new Map();
+    function getSpecLevel(nid) {
+      if (specLevel.has(nid)) return specLevel.get(nid);
+      const parents = specParentsOf.get(nid) || [];
+      if (parents.length === 0) {
+        specLevel.set(nid, 0);
+        return 0;
+      }
+      // 순환 방지
+      specLevel.set(nid, -1);
+      const lv = Math.max(...parents.map(p => {
+        const pl = getSpecLevel(p);
+        return pl < 0 ? 0 : pl;
+      })) + 1;
+      specLevel.set(nid, lv);
+      return lv;
+    }
+
+    const allSpecNodes = new Set();
+    for (const [child, parents] of specParentsOf) {
+      allSpecNodes.add(child);
+      for (const p of parents) allSpecNodes.add(p);
+    }
+    for (const nid of allSpecNodes) getSpecLevel(nid);
+
+    // usage 노드(partusage 등)는 spec 레이아웃에서 제외
+    const isUsageNode = (nid) => {
+      const n = nodeById.get(nid);
+      if (!n) return false;
+      return String(n.kind || n.type || '').toLowerCase().includes('usage');
+    };
+
+    // 레벨별 노드 그룹
+    const byLevel = new Map();
+    for (const [nid, lv] of specLevel) {
+      if (isUsageNode(nid)) continue;
+      if (!byLevel.has(lv)) byLevel.set(lv, []);
+      byLevel.get(lv).push(nid);
+    }
+
+    if (byLevel.size === 0) return;
+
+    const maxLevel = Math.max(...byLevel.keys());
+
+    const NODE_GAP_X = 200;
+    const LEVEL_GAP_Y = 80;  // 레벨 간 수직 여백
+    const START_X = 80;
+    const START_Y = 80;
+
+    // 가장 넓은 레벨의 총 폭을 기준으로 center X 계산 (ELK 위치 무관)
+    let maxLevelWidth = 0;
+    for (const lvNodes of byLevel.values()) {
+      const w = lvNodes.reduce((sum, nid) => sum + (nodeById.get(nid)?.width || 120), 0)
+                + NODE_GAP_X * Math.max(0, lvNodes.length - 1);
+      if (w > maxLevelWidth) maxLevelWidth = w;
+    }
+    const diagCX = START_X + maxLevelWidth / 2;
+
+    // 레벨별 Y를 실제 노드 높이 기반으로 누적 계산
+    const levelY = new Map();
+    let currentY = START_Y;
+    for (let lv = 0; lv <= maxLevel; lv++) {
+      levelY.set(lv, currentY);
+      const lvNodes = byLevel.get(lv) || [];
+      const maxH = lvNodes.reduce((mx, nid) => Math.max(mx, nodeById.get(nid)?.height || 120), 120);
+      currentY += maxH + LEVEL_GAP_Y;
+    }
+
+    const nodeCX = new Map(); // nid → center X 배치 결과
+
+    for (let lv = 0; lv <= maxLevel; lv++) {
+      const nodes = byLevel.get(lv) || [];
+      if (nodes.length === 0) continue;
+
+      // 평균 부모 CX 기준 정렬
+      const avgParentCX = (nid) => {
+        const pars = specParentsOf.get(nid) || [];
+        if (pars.length === 0) return nodeCX.get(nid) ?? diagCX;
+        const sum = pars.reduce((acc, p) => acc + (nodeCX.get(p) ?? diagCX), 0);
+        return sum / pars.length;
+      };
+      nodes.sort((a, b) => avgParentCX(a) - avgParentCX(b));
+
+      // 전체 행 폭 계산
+      let totalWidth = 0;
+      for (const nid of nodes) {
+        const n = nodeById.get(nid);
+        totalWidth += (n?.width || 120);
+      }
+      totalWidth += NODE_GAP_X * (nodes.length - 1);
+
+      let startX = diagCX - totalWidth / 2;
+      const y = levelY.get(lv);
+
+      for (const nid of nodes) {
+        const n = nodeById.get(nid);
+        if (!n) continue;
+        const w = n.width || 120;
+        n.x = startX;
+        n.y = y;
+        // spec 노드는 containment parent를 제거하여 mxGraph가 루트로 렌더링하도록 함
+        // (ELK 계산은 이미 완료된 후이므로 allElkEdges/buildHierarchy에 영향 없음)
+        if (n.parent) {
+          delete n.parent;
+        }
+        n.relativeX = n.x;
+        n.relativeY = n.y;
+        nodeCX.set(nid, startX + w / 2);
+        startX += w + NODE_GAP_X;
+      }
+    }
+
+    // specialization 엣지에 entryX 힌트 저장 (MxEdgeBuilder에서 사용)
+    for (const e of connections) {
+      const kind = String(e.kind || e.type || '').toLowerCase();
+      if (kind !== 'specialization' && kind !== 'inheritance' && kind !== 'generalization') continue;
+      const childNode = nodeById.get(e.source);
+      const parentNode = nodeById.get(e.target);
+      if (!childNode || !parentNode) continue;
+      const childCX = (childNode.x || 0) + (childNode.width || 120) / 2;
+      const parentX = parentNode.x || 0;
+      const parentW = parentNode.width || 120;
+      e._specEntryX = Math.max(0, Math.min(1, (childCX - parentX) / parentW));
+    }
+
+    // guiData 복원 방지 플래그
+    diagramData._customLayoutApplied = true;
+  }
 
   function fallbackGrid(diagramData) {
     const DS = window.SELAB?.Editor?.config?.displaySettings;
