@@ -1404,7 +1404,7 @@
     // (주로 cross-container) association/connector 엣지에 적용된다.
     for (const e of connections) {
       const kind = String(e.kind || e.type || '').toLowerCase();
-      if (kind !== 'association' && kind !== 'connector') continue;
+      if (kind !== 'association' && kind !== 'connector' && kind !== 'featuretyping') continue;
       const s = nodeById.get(e.source);
       const t = nodeById.get(e.target);
       if (!s || !t) continue;
@@ -1414,6 +1414,26 @@
       const tcy = (t.y || 0) + (t.height || 60) / 2;
       const dx = tcx - scx;
       const dy = tcy - scy;
+      // Rule O15-1 (featureTyping Anchor 동적화): typed node가 feature 바로 아래에
+      // 있지 않은 경우(예: 같은 레벨/옆쪽 배치) bottom->top 고정 anchor를 쓰면 엣지가
+      // 자기 자신 또는 다른 노드 위를 가로지르게 된다. H4-7과 동일하게 상대 위치
+      // 기준으로 가장 가까운 외곽(side)을 선택한다.
+      if (kind === 'featuretyping') {
+        // H3(Case A/B)는 항상 typed를 feature 바로 아래에 배치하므로, dx/dy
+        // 비교로 E/W를 선택하면(예: typed가 컨테이너라 width가 넓어 dx가 커지는
+        // 경우) 옆면(W/E) anchor가 잘못 선택되어 엣지가 박스를 휘감아 들어가는
+        // 루프가 생긴다. featureTyping은 항상 수직(S->N) anchor로 고정한다.
+        {
+          e._ftExit = 'S';
+          e._ftEntry = 'N';
+          // O15-1 보강: entry X를 source 중심(scx)의 절대 좌표에 맞춘 비율로
+          // 고정해, exit(=source 중심)과 entry의 절대 X가 일치하는 완전한
+          // 수직선이 되도록 한다.
+          const tw = t.width || 120;
+          e._ftEntryX = Math.max(0, Math.min(1, (scx - (t.x || 0)) / tw));
+        }
+        continue;
+      }
       if (Math.abs(dx) >= Math.abs(dy)) {
         e._assocExit = dx >= 0 ? 'E' : 'W';
         e._assocEntry = dx >= 0 ? 'W' : 'E';
@@ -1438,6 +1458,14 @@
         const s = nodeById.get(e.source);
         const t = nodeById.get(e.target);
         if (!s || !t) continue;
+        // H3-3/H3-5: featureTyping은 feature 바로 아래에 typed node를 배치하므로
+        // 직선(orthogonal) 연결이면 충분하다. ELK가 남긴 stale waypoint가 짧은
+        // 구간 안에서 지그재그(요동)를 만드는 경우가 있으므로 항상 폐기한다.
+        const kindLower = String(e.kind || e.type || '').toLowerCase();
+        if (kindLower === 'featuretyping') {
+          delete e.waypoints;
+          continue;
+        }
         const scx = (s.x || 0) + (s.width || 120) / 2;
         const scy = (s.y || 0) + (s.height || 60) / 2;
         const tcx = (t.x || 0) + (t.width || 120) / 2;

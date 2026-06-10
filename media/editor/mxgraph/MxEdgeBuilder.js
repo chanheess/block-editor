@@ -344,6 +344,23 @@
      * @param {Set} borderNodeIds
      * @returns {mxCell|null}
      */
+    function getCellAbsCenter(graph, cell) {
+        const model = graph.getModel();
+        const defaultParent = graph.getDefaultParent();
+        const g = model.getGeometry(cell);
+        if (!g) return null;
+        let cx = (g.x || 0) + (g.width || 0) / 2;
+        let x = g.x || 0;
+        const w = g.width || 0;
+        let p = cell.parent;
+        while (p && p !== defaultParent && p !== model.getRoot()) {
+            const pg = model.getGeometry(p);
+            if (pg) { cx += pg.x || 0; x += pg.x || 0; }
+            p = p.parent;
+        }
+        return { x, w, cx };
+    }
+
     function createEdge(graph, parent, edge, cellMap, borderNodeIds) {
         if (!graph || !edge) return null;
 
@@ -416,7 +433,26 @@
         // top/bottom 고정 anchor가 오히려 큰 우회를 유발하므로 기존 동적 anchor를 유지한다.
         if (!srcIsBorderNode && !tgtIsBorderNode) {
             if (edgeTypeLower === 'featuretyping') {
-                style += ';exitX=0.5;exitY=1;exitPerimeter=0;entryX=0.5;entryY=0;entryPerimeter=0';
+                // O15-1: typed node가 feature 바로 아래(dy >= dx)일 때만 기존
+                // bottom->top anchor를 쓰고, 그 외(옆/위쪽 배치)에는 상대 위치
+                // 기준 side anchor를 사용해 노드 위를 가로지르지 않게 한다.
+                if (edge._ftExit === 'S' && edge._ftEntry === 'N') {
+                    // resizeParentsToFitChildren()이 createEdge 이전에 실행되므로,
+                    // elkLayout 시점의 _ftEntryX(비율) 대신 현재(최종) 셀 geometry
+                    // 기준으로 entryX를 다시 계산해 typed의 width 변경에도 source
+                    // 중심과 절대 X가 일치하도록 한다.
+                    let entryX = edge._ftEntryX != null ? edge._ftEntryX : 0.5;
+                    const srcAbs = getCellAbsCenter(graph, sourceCell);
+                    const tgtAbs = getCellAbsCenter(graph, targetCell);
+                    if (srcAbs && tgtAbs && tgtAbs.w > 0) {
+                        entryX = Math.max(0, Math.min(1, (srcAbs.cx - tgtAbs.x) / tgtAbs.w));
+                    }
+                    style += `;exitX=0.5;exitY=1;exitPerimeter=0;entryX=${entryX.toFixed(3)};entryY=0;entryPerimeter=0;jettySize=0`;
+                } else if (edge._ftExit && edge._ftEntry) {
+                    style += `;${sideExitStyle(edge._ftExit)};${sideEntryStyle(edge._ftEntry)}`;
+                } else {
+                    style += ';exitX=0.5;exitY=1;exitPerimeter=0;entryX=0.5;entryY=0;entryPerimeter=0';
+                }
             }
         }
 
@@ -438,7 +474,10 @@
 
         const edgeCell = graph.insertEdge(parent, id, edgeLabel, sourceCell, targetCell, style);
 
-        if (hasElkWaypoints) {
+        // O15-1: featureTyping(non-border)은 항상 exitX/entryX 고정 anchor로 직선
+        // 연결한다. ELK의 stale geometry.points가 섞이면 exit/entry anchor와
+        // 무관하게 점을 거쳐가는 우회 경로가 생기므로 적용하지 않는다.
+        if (hasElkWaypoints && !(edgeTypeLower === 'featuretyping' && !srcIsBorderNode && !tgtIsBorderNode)) {
             applyElkWaypoints(graph, edgeCell, edge, sourceCell, targetCell);
         }
 

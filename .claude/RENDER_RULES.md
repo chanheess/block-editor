@@ -1329,8 +1329,41 @@ Score =
 |------|---------------|---------------|
 | specialization | child.top | parent.bottom |
 | containment | child.top | parent.bottom |
-| featureTyping | source.bottom | target.top |
+| featureTyping | source.bottom → target.top (단, O15-1 참고) |
 | association | nearest side anchor (가장 가까운 변) |
+
+---
+
+## Rule O15-1. featureTyping Anchor 동적화 + Stale Waypoint 제거
+
+H3에 의해 typed node가 feature 바로 아래에 배치되는 것이 일반적이지만(O15: source.bottom →
+target.top), 그렇지 않은 경우(같은 레벨/옆쪽 배치 등) bottom→top 고정 anchor를 그대로
+쓰면 엣지가 자기 자신이나 다른 노드 위를 가로지르게 된다.
+
+1. **Anchor 고정(S→N)**: H3(Case A/B)는 항상 typed를 feature 바로 아래에 배치하므로
+   featureTyping은 dx/dy 비교 없이 항상 source.bottom → target.top(O15, S→N)으로
+   고정한다. typed가 컨테이너일 때 width가 넓어지면 dx가 커져 association처럼
+   nearest-side(H4-7, W/E)로 잘못 선택될 수 있는데, 이 경우 엣지가 박스를
+   휘감는 루프가 생기므로 dx/dy 비교 분기를 사용하지 않는다.
+
+2. **Stale ELK Waypoint 제거**: featureTyping 엣지는 ELK가 계산한 원본 waypoints/
+   geometry.points를 사용하지 않는다. M2~M8 재배치 이후 stale point가 남아 있으면
+   exit/entry anchor와 무관하게 그 점을 거쳐가는 우회 경로(요동/오버슈트)가 생기므로,
+   featureTyping(non-border) 엣지는 항상 anchor만으로 직선(orthogonal) 연결한다.
+
+3. **수직 정렬 보정**: source/target의 width가 달라 중심(0.5/0.5) anchor의 절대 X가
+   미세하게 어긋나면, 짧은 구간에서 `jettySize=auto`(orthogonalEdgeStyle)가 작은
+   루프를 그리는 현상이 생긴다. entry X를 source 중심의 절대 X에 맞춰 exit/entry의
+   절대 X를 일치시키고, `jettySize=0`으로 고정해 완전한 수직 직선을 만든다.
+   typed가 컨테이너인 경우 `resizeParentsToFitChildren()`(자식을 모두 포함하도록
+   부모 크기 보정)이 엣지 생성 직전에 실행되어 elkLayout 시점의 width(`_ftEntryX`)와
+   달라질 수 있으므로, `MxEdgeBuilder.createEdge`에서 **현재(최종) 셀 geometry
+   기준으로 entryX를 다시 계산**한다.
+
+> 구현 위치: `elkLayout.js` (association 앵커 계산 루프에 featuretyping 추가, `_ftExit`/`_ftEntry`
+> 항상 S/N 고정 + `_ftEntryX` 저장 + stale waypoint 무조건 폐기), `MxEdgeBuilder.js`
+> (`_ftEntryX` 기반 entry anchor + `jettySize=0`, featureTyping non-border 엣지는
+> `applyElkWaypoints` 미적용).
 
 ---
 
