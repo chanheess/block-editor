@@ -127,6 +127,110 @@ testEngine_p
 
 Engine은 1개만 그린다. (H3-4와 연동)
 
+## Rule D6. PartUsage는 Feature이다.
+
+partusage는 타입(Type)이 아니라 Feature이다.
+
+partusage는 구조(Containment)에 의해 소유되며,
+featureTyping을 통해 타입을 참조한다.
+
+예)
+
+```text
+Vehicle
+ └ engine
+      ▼
+   Engine
+```
+
+여기서 `Vehicle = PartDefinition`, `engine = PartUsage`,
+`Engine = PartDefinition`이다.
+
+partusage는 specialization 계층의 구성원이 아니다.
+
+## Rule D7. PartUsage는 Root Type이 될 수 없다.
+
+partusage는 Root Type(H0)가 될 수 없다.
+
+다음 계산에서 제외한다.
+
+- Root Type 결정
+- specialization depth 계산
+- Parent Set Group 계산
+
+즉 `engine`, `motor`, `wheel` 등은
+Type Hierarchy Zone의 루트가 될 수 없다.
+
+## Rule D8. PartUsage는 소유자(Owner)에 종속된다.
+
+partusage의 위치는 소유자(containment parent)에 의해 결정된다.
+
+예) `Vehicle └ engine`이면 `engine`의 위치는
+`Vehicle` 내부에서만 결정된다.
+
+partusage는 자신의 typed node 위치를 변경할 수 없다.
+(H3-2와 연동)
+
+## Rule D9. PartUsage는 Structure Zone에만 존재한다.
+
+partusage는 항상 Structure Zone(B)에 속한다.
+
+partusage는 Type Hierarchy Zone(A)으로 이동할 수 없다.
+
+예) `engine ▼ Engine`에서 `engine`은 Vehicle 내부에 존재해야 하며,
+`Engine`이 specialization 계층에 속하더라도
+`engine` 자체가 Zone A로 이동해서는 안 된다.
+(L1~L7과 연동)
+
+## Rule D10. Top-Level PartUsage 보정
+
+containment parent가 없는 partusage는
+featureTyping target 근처에 배치한다.
+
+우선순위
+
+1. typed node 근처
+2. 최소 crossing
+3. 최소 bend
+4. 동일 Y 정렬
+
+예) 최상위에 떠 있는 `engine_p`를
+`Engine`의 상단 또는 좌측 근처에 배치한다.
+
+```text
+engine_p
+   │
+   ▼
+ Engine
+```
+
+단, containment / specialization 배치를 변경해서는 안 된다.
+(H3-5 확장 — `engine_p`, `circle_p`, `layer_p`, `rect_p`가
+화면 구석에 떠 있던 문제가 이 규칙의 부재로 발생한 현상)
+
+## Rule D11. PartUsage Dominance
+
+PartUsage는 위치 결정 권한을 갖지 않는다.
+
+우선순위
+
+```text
+containment
+>
+specialization
+>
+featureTyping(target type)
+>
+partusage(feature)
+>
+association
+```
+
+즉 `engine_p` 때문에 `Engine`을 이동시키면 안 된다.
+반대로 `Engine`이 이미 위치가 결정되어 있다면
+`engine_p`가 이동하는 것은 허용된다.
+(H2-12 / H3-7 / H4-4 Dominance 계열과 연동)
+
 ---
 
 # 3. 계층 규칙
