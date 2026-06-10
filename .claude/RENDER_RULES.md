@@ -1360,6 +1360,30 @@ Edge Rendering
 
 ---
 
+## Rule O17. Specialization Parent Filtering (M7/L7 구현)
+
+O10(Specialization Spine) 계산에서 `movableNodes`의 `avgParentCX`(M3)는, 부모 노드가 Zone B(Structure Zone)에 고정된 Dual Role Node(예: `Triangle`)인 경우 그 노드의 **실제 CX가 아닌 L7 가상 CX**를 사용한다.
+
+구현 위치: `elkLayout.js`의 specialization 레벨별 배치 루프에서 `fixedNodes`의 `nodeCX`를 다음과 같이 계산한다.
+
+```js
+for (const nid of fixedNodes) {
+  const pars = specParentsOf.get(nid) || [];
+  if (pars.length > 0) {
+    // L7: 실제 좌표 대신 자신의 specialization 부모 CX 평균(가상 좌표)을 사용
+    nodeCX.set(nid, avg(pars.map(p => nodeCX.get(p))));
+  } else {
+    nodeCX.set(nid, 실제 CX);
+  }
+}
+```
+
+이 가상 CX가 하위 레벨(`RightTriangle`, `EquilateralTriangle`, `Square` 등)의 `avgParentCX` 계산에 그대로 사용되므로, Zone B에 고정된 부모는 별도의 "제외 분기" 없이도 자동으로 Zone A 좌표(M7의 dominant parent CX)에 수렴한다.
+
+> 효과: `Square`/`RightTriangle`/`EquilateralTriangle`이 더 이상 Zone A-B 사이 빈 공간으로 끌려가지 않고 `Polygon` 축 주변에 정렬된다 (검증 완료, 2026-06-11 스크린샷).
+
+---
+
 ## O-Rule 적용 우선순위
 
 현재 렌더링 결과(엣지 교차/관통 다수)를 개선하기 위한 적용 순서:
@@ -1545,6 +1569,27 @@ Rectangle(level 2)
 
 - `diagramData._customLayoutApplied = true` 플래그가 설정된 경우 `applyGuiDataPositions` 호출을 건너뜀
 - 이 규칙이 없으면 새 레이아웃이 구 좌표로 덮어써지는 무한 루프 발생
+
+---
+
+## Rule M7. Dominant Parent Rule (Zone 간 다중 부모 위치 결정)
+
+다중 부모(M2)가 서로 다른 Zone(Zone A: Type Hierarchy, Zone B: Structure)에 걸쳐 있을 경우, M2의 단순 평균(`avgCX`)을 그대로 적용하면 자식 노드가 두 Zone 사이의 빈 공간으로 끌려가 두 부모 모두에게 긴 우회 엣지가 생긴다.
+
+이를 방지하기 위해 **위치 결정에 사용할 부모(dominant parent)** 를 다음 우선순위로 선정한다:
+
+1. Type Hierarchy Zone(Zone A)의 Free Specialization Node (예: `Polygon`)
+2. Containment-fixed Dual Role Node (예: `Triangle`) — 단, Rule L7(Virtual Specialization Layout)에 의해 보정된 가상 CX를 사용
+3. 그 외 부모
+
+`Triangle`처럼 Zone B에 고정된 Dual Role Node도 L7을 통해 자신의 specialization 부모(Polygon)의 CX를 가상 CX로 가지게 되므로, 결과적으로 M2의 평균 계산은 모든 부모가 사실상 같은 Zone A 좌표(Polygon CX)로 수렴한다 — 별도의 "부모 제외" 분기 없이 M2 + L7만으로 M7이 satisfy된다.
+
+```
+Triangle.virtualCX = avgParentCX(Triangle) = Polygon.CX   (L7)
+RightTriangle.x    = avg(Triangle.virtualCX, Polygon.CX)
+                    = avg(Polygon.CX, Polygon.CX)
+                    = Polygon.CX                          (M7 결과)
+```
 
 ---
 

@@ -960,6 +960,29 @@
 
     if (byLevel.size === 0) return;
 
+    // Rule O10 (Specialization Spine): level 0(최상위 부모) 노드들을, 그 자식들의
+    // (ELK가 산출한) 평균 x 위치를 기준으로 정렬한다. 이렇게 하면 하위 레벨에서
+    // avgParentCX(M3) 기준으로 정렬된 자식들과 부모의 좌우 순서가 일치해,
+    // specialization 엣지들이 서로 꼬이지 않고 공통 수직 채널(spine)을 형성한다.
+    {
+      const level0 = byLevel.get(0);
+      if (Array.isArray(level0) && level0.length > 1) {
+        const childAvgX = (nid) => {
+          const kids = (specChildrenOf.get(nid) || []).filter(cid => !isUsageNode(cid));
+          if (kids.length === 0) {
+            const n = nodeById.get(nid);
+            return n ? (n.x || 0) + (n.width || 120) / 2 : 0;
+          }
+          const sum = kids.reduce((acc, cid) => {
+            const c = nodeById.get(cid);
+            return acc + (c ? (c.x || 0) + (c.width || 120) / 2 : 0);
+          }, 0);
+          return sum / kids.length;
+        };
+        level0.sort((a, b) => childAvgX(a) - childAvgX(b));
+      }
+    }
+
     const maxLevel = Math.max(...byLevel.keys());
 
     // Rule H2-1: containment(부모-자식 서브트리)는 specialization 배치 이후에도
@@ -1160,7 +1183,19 @@
       for (const nid of fixedNodes) {
         const n = nodeById.get(nid);
         if (!n) continue;
-        nodeCX.set(nid, (n.x || 0) + (n.width || 0) / 2);
+        // Rule L7 (Virtual Specialization Layout): Dual Role Node(Triangle 등)는
+        // 실제 렌더링 위치(containment 내부, Structure Zone)를 그대로 specialization
+        // 계산의 기준점으로 쓰지 않는다. 대신 자신의 specialization 부모(Polygon 등,
+        // Type Hierarchy Zone)의 CX를 가상 좌표로 사용해, Free Specialization Node
+        // (RightTriangle/EquilateralTriangle/Square)가 Zone A-B 사이 중간 지점이 아닌
+        // Polygon 축(가상 Triangle 위치)에 정렬되도록 한다.
+        const pars = specParentsOf.get(nid) || [];
+        if (pars.length > 0) {
+          const sum = pars.reduce((acc, p) => acc + (nodeCX.get(p) ?? diagCX), 0);
+          nodeCX.set(nid, sum / pars.length);
+        } else {
+          nodeCX.set(nid, (n.x || 0) + (n.width || 0) / 2);
+        }
       }
 
       // 평균 부모 CX 기준 정렬 (Rule M3)
