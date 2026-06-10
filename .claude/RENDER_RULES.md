@@ -118,6 +118,162 @@ Vehicle
 - 방향: Top → Bottom
 - 부모 아래에 배치
 - specialization 계층을 깨지 않음
+- Definition → Usage 구조를 형성
+- featureTyping보다 우선 배치
+
+---
+
+### Rule H2-1. specialization 이후 처리
+
+containment는 specialization 계층이 완전히 생성된 이후 적용한다.
+
+처리 순서
+
+```
+Root Type
+↓
+specialization
+↓
+containment
+```
+
+containment는 기존 타입 계층을 변경할 수 없다.
+
+---
+
+### Rule H2-2. containment depth 계산
+
+containment child의 depth는 다음과 같이 계산한다.
+
+```
+child.depth = parent.depth + 1
+```
+
+---
+
+### Rule H2-3. Definition → Usage → Definition 구조 유지
+
+```
+Vehicle
+ └─ engine
+      ▼
+   Engine
+```
+
+Vehicle = Definition
+engine  = Usage
+Engine  = Definition
+
+레이아웃은 반드시 이 구조를 보존해야 한다.
+
+---
+
+### Rule H2-4. containment subtree 단위 배치
+
+containment child와 그 하위 featureTyping 대상은 하나의 subtree로 계산한다.
+
+---
+
+### Rule H2-5. containment 형제 대칭 배치
+
+동일 부모의 containment child들은 부모 중심 기준으로 대칭 배치한다.
+
+---
+
+### Rule H2-6. containment 폭 계산
+
+```
+parent.width = Σ(child subtree width)
+```
+
+---
+
+### Rule H2-7. containment 우선, featureTyping 종속
+
+containment를 먼저 배치한 후 featureTyping을 연결한다.
+
+featureTyping은 containment 위치를 변경할 수 없다.
+
+---
+
+### Rule H2-8. Parent Set Group 계산 제외
+
+containment 관계는 Parent Set Group 계산 대상이 아니다.
+
+Parent Set Group 계산은 specialization 관계에만 적용한다.
+
+---
+
+### Rule H2-9. Containment Anchor 우선
+
+containment child는 containment parent를 기준으로 배치한다.
+
+specialization 관계는 containment child의 소속(container)을 변경할 수 없다.
+
+예)
+
+```
+Canvas
+ └ Layer
+      └ Rectangle
+```
+
+이면 Rectangle은 반드시 Layer 내부에 있어야 한다.
+
+```
+Rectangle
+  ▲
+Polygon
+```
+
+은 타입 관계일 뿐, Rectangle을 Layer 밖으로 이동시킬 권한이 없다.
+
+---
+
+### Rule H2-10. Containment Boundary 불변
+
+containment parent의 경계(boundary)는 모든 containment child를 포함해야 한다.
+
+Layer 안의 Rectangle/Circle/Triangle이 이동하면 Layer.width/Layer.height를 재계산해야 한다.
+
+---
+
+### Rule H2-11. Specialized Child 고정
+
+containment child가 specialization 노드인 경우에도, 우선적으로 containment 위치를 따른다.
+
+예)
+
+```
+Layer
+ └ Rectangle  ─specialization→ Polygon
+```
+
+배치 결과: `Layer └ Rectangle` 유지, Polygon은 참조 대상처럼 연결만 한다.
+
+---
+
+### Rule H2-12. Containment Dominance
+
+containment와 specialization이 동일 노드에 대해 충돌하면 containment가 우선한다.
+
+실제 위치 결정 우선순위:
+
+```
+containment > specialization > featureTyping > association
+```
+
+---
+
+### Rule H2-13. Containment Child Relocation 금지
+
+containment child는 specialization 레이아웃 단계에서 재배치(reposition)할 수 없다.
+
+허용: Polygon/Rectangle/Triangle 간 specialization edge routing
+
+금지: Rectangle.x, Circle.x, Triangle.x 등 containment child의 위치 변경
+
+즉 specialization은 노드를 이동하는 것이 아니라 엣지를 표현하는 역할만 해야 한다.
 
 ---
 
@@ -218,6 +374,34 @@ Parent Set Group이란 동일한 부모 집합(parent set)을 공유하는 노�
 
 - Horizontal spacing = 200px
 - Vertical spacing = 150px
+
+---
+
+## Rule O6. Container Bbox 통과 금지
+
+association 및 featureTyping 엣지는 관계 없는 노드의 bbox를 통과할 수 없다.
+
+```
+edge segment ∩ node bbox = ∅  (단, 자신의 source/target 노드는 제외)
+```
+
+---
+
+## Rule O7. Channel Routing
+
+엣지는 노드 간 여백(채널) 영역을 우선 사용한다.
+
+우선순위
+
+1. 수평 채널 (형제 노드 사이의 수평 여백)
+2. 수직 채널 (레벨/레이어 간 수직 여백)
+3. 컨테이너 외곽
+
+---
+
+## Rule O8. Structure Zone Boundary Routing
+
+association 또는 featureTyping 엣지가 containment 영역(Structure Zone)을 가로질러야 하는 경우, 컨테이너 내부를 통과하지 않고 컨테이너 외곽선을 따라 우회한다.
 
 ---
 
@@ -394,7 +578,88 @@ Rectangle(level 2)
 
 ---
 
-# 9. 레이아웃 품질 평가
+# 9. Layout Zone Rules
+
+BDD 레이아웃은 두 개의 좌표 영역(Zone)으로 구성된다. 두 Zone은 서로 겹칠 수 없다.
+
+- **Zone A — Type Hierarchy Zone**: specialization으로 형성되는 타입 계층 (Shape/Drawable/Resizable/Polygon/Rectangle/Triangle/Square 등)
+- **Zone B — Structure Zone**: containment/featureTyping/association으로 형성되는 구조 계층 (Canvas/Layer/Rectangle/Circle/Triangle/RenderEngine 등)
+
+```
+Zone A (Type Hierarchy)        Zone B (Structure)
+
+Shape Drawable Resizable       Canvas
+      │                         ├ Layer
+   Polygon                      │   ├ Rectangle
+   /      \                     │   ├ Circle
+Rectangle Triangle              │   └ Triangle
+   │                            └ RenderEngine
+ Square
+```
+
+---
+
+## Rule L1. Zone 분리
+
+렌더링 공간을 Type Hierarchy Zone(A)과 Structure Zone(B)으로 구분한다.
+
+두 Zone의 bbox는 겹칠 수 없다.
+
+---
+
+## Rule L2. Structure Zone 우선 확보
+
+containment root(예: Canvas)가 존재하면, 먼저 Structure Zone(Zone B)의 bbox를 확정한다.
+
+그 다음 Type Hierarchy Zone(Zone A)의 노드들을 Zone B와 겹치지 않는 영역에 배치한다.
+
+즉, specialization은 containment 영역을 침범할 수 없다.
+
+---
+
+## Rule L3. Free Specialization Node 분리
+
+containment parent가 없는 specialization 노드(예: Square, RightTriangle, EquilateralTriangle)는 Type Hierarchy Zone(Zone A)에만 존재해야 한다.
+
+Structure Zone(Canvas/Layer 등)의 bbox 내부에 들어갈 수 없다.
+
+---
+
+## Rule L4. Container Collision 금지
+
+모든 specialization 노드의 bbox는 모든 containment container의 bbox와 교차할 수 없다.
+
+```
+specNode.bbox ∩ container.bbox = ∅
+```
+
+---
+
+## Rule L5. Containment Child 우선권 (H2-13 연동)
+
+containment child(예: Layer의 자식인 Rectangle/Circle/Triangle)는 specialization 배치 단계에서 좌표 변경이 금지된다.
+
+specialization 배치 단계는 containment parent가 없는 노드(Polygon, Shape, Drawable, Resizable, Square, RightTriangle, EquilateralTriangle 등)만 다룬다.
+
+---
+
+## Rule L6. Dual Role Node 단일 렌더링
+
+containment child이면서 동시에 specialization 노드인 경우(Rectangle/Circle/Triangle), 노드는 containment 위치에 한 번만 그린다.
+
+specialization 관계(예: Rectangle → Polygon)는 엣지로만 표현하며, 별도의 specialization 위치에 중복 렌더링하지 않는다.
+
+---
+
+## Rule L7. Virtual Specialization Layout
+
+Dual Role Node(Rectangle/Circle/Triangle 등)가 containment 내부에 위치하더라도, specialization 레벨/배치 계산 시에는 해당 노드의 실제 위치를 가상 좌표(virtual position)로 참조한다.
+
+이 가상 좌표를 기준으로 Free Specialization Node(Square 등)의 위치를 계산하여, Zone B(Structure Zone)를 침범하지 않도록 한다.
+
+---
+
+# 10. 레이아웃 품질 평가
 
 ## 평가 항목
 

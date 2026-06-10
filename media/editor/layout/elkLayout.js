@@ -947,73 +947,263 @@
 
     const maxLevel = Math.max(...byLevel.keys());
 
+    // Rule H2-1: containment(부모-자식 서브트리)는 specialization 배치 이후에도
+    // ELK가 계산한 상대 구조(H2-2~H2-8)를 그대로 보존해야 한다.
+    // → spec 노드를 이동시킬 때 containment 자식 전체를 같은 델타(dx, dy)만큼
+    //    함께 이동시켜(rigid translation) ELK가 만든 서브트리 구조를 깨지 않는다.
+    const childrenOf = new Map(); // parentId → childId[]
+    for (const n of elements) {
+      if (n.parent) {
+        if (!childrenOf.has(n.parent)) childrenOf.set(n.parent, []);
+        childrenOf.get(n.parent).push(n.id);
+      }
+    }
+
+    function collectSubtreeIds(nodeId, set) {
+      set.add(nodeId);
+      for (const cid of (childrenOf.get(nodeId) || [])) collectSubtreeIds(cid, set);
+      return set;
+    }
+
+    // Rule H2-6: parent.width/height = containment 자식들의 union bbox(+padding)를 덮도록 보정.
+    // ELK가 일부 컴파운드 노드(예: Vehicle)의 박스 크기를 자식 전체(예: PowerTrain)를
+    // 포함하지 못하게 산출한 경우, 자식이 부모 박스 밖으로 넘치는 문제를 해결한다.
+    // post-order(자식 먼저)로 처리해 중첩 컨테이너도 누적 보정되도록 한다.
+    (function enforceContainerBounds() {
+      const PADDING = 30;
+      const visited = new Set();
+      function process(nodeId) {
+        if (visited.has(nodeId)) return;
+        visited.add(nodeId);
+        const kids = childrenOf.get(nodeId) || [];
+        for (const cid of kids) process(cid);
+        if (kids.length === 0) return;
+        const n = nodeById.get(nodeId);
+        if (!n) return;
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        for (const cid of kids) {
+          const c = nodeById.get(cid);
+          if (!c) continue;
+          minX = Math.min(minX, c.x || 0);
+          minY = Math.min(minY, c.y || 0);
+          maxX = Math.max(maxX, (c.x || 0) + (c.width || 0));
+          maxY = Math.max(maxY, (c.y || 0) + (c.height || 0));
+        }
+        if (minX === Infinity) return;
+        const curMinX = n.x || 0;
+        const curMinY = n.y || 0;
+        const curMaxX = curMinX + (n.width || 0);
+        const curMaxY = curMinY + (n.height || 0);
+        const newMinX = Math.min(curMinX, minX - PADDING);
+        const newMinY = Math.min(curMinY, minY - PADDING);
+        const newMaxX = Math.max(curMaxX, maxX + PADDING);
+        const newMaxY = Math.max(curMaxY, maxY + PADDING);
+        n.x = newMinX;
+        n.y = newMinY;
+        n.width = newMaxX - newMinX;
+        n.height = newMaxY - newMinY;
+        if (n.parent) {
+          const par = nodeById.get(n.parent);
+          if (par) {
+            n.relativeX = n.x - (par.x || 0);
+            n.relativeY = n.y - (par.y || 0);
+          }
+        } else {
+          n.relativeX = n.x;
+          n.relativeY = n.y;
+        }
+      }
+      for (const n of elements) process(n.id);
+    })();
+
+    // Rule H2-6: subtree bounding box (parent.width = Σ child subtree width의 시각적 근거)
+    function getSubtreeBBox(nodeId, ids) {
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      for (const id of ids) {
+        const n = nodeById.get(id);
+        if (!n) continue;
+        minX = Math.min(minX, n.x || 0);
+        minY = Math.min(minY, n.y || 0);
+        maxX = Math.max(maxX, (n.x || 0) + (n.width || 0));
+        maxY = Math.max(maxY, (n.y || 0) + (n.height || 0));
+      }
+      if (minX === Infinity) {
+        const n = nodeById.get(nodeId);
+        return { minX: n?.x || 0, minY: n?.y || 0, maxX: (n?.x || 0) + (n?.width || 0), maxY: (n?.y || 0) + (n?.height || 0), width: n?.width || 120, height: n?.height || 120 };
+      }
+      return { minX, minY, maxX, maxY, width: maxX - minX, height: maxY - minY };
+    }
+
+    // 서브트리 전체를 (dx, dy)만큼 이동. 같은 서브트리 내부 엣지의 waypoints도 함께 이동.
+    // 서브트리 경계를 가로지르는 엣지의 waypoints는 더 이상 유효하지 않으므로 제거(mxGraph 자동 라우팅에 위임).
+    function moveSubtree(nodeId, dx, dy, ids) {
+      if (dx === 0 && dy === 0) return;
+      for (const id of ids) {
+        const n = nodeById.get(id);
+        if (!n) continue;
+        n.x = (n.x || 0) + dx;
+        n.y = (n.y || 0) + dy;
+      }
+      const root = nodeById.get(nodeId);
+      if (root) {
+        if (!root.parent) {
+          root.relativeX = root.x;
+          root.relativeY = root.y;
+        } else {
+          const par = nodeById.get(root.parent);
+          if (par) {
+            root.relativeX = root.x - (par.x || 0);
+            root.relativeY = root.y - (par.y || 0);
+          }
+        }
+      }
+      for (const e of connections) {
+        if (!Array.isArray(e.waypoints)) continue;
+        const sIn = ids.has(e.source);
+        const tIn = ids.has(e.target);
+        if (sIn && tIn) {
+          e.waypoints = e.waypoints.map(p => ({ x: p.x + dx, y: p.y + dy }));
+        } else if (sIn || tIn) {
+          delete e.waypoints;
+        }
+      }
+    }
+
     const NODE_GAP_X = 200;
     const LEVEL_GAP_Y = 80;  // 레벨 간 수직 여백
     const START_X = 80;
     const START_Y = 80;
 
-    // 가장 넓은 레벨의 총 폭을 기준으로 center X 계산 (ELK 위치 무관)
-    let maxLevelWidth = 0;
-    for (const lvNodes of byLevel.values()) {
-      const w = lvNodes.reduce((sum, nid) => sum + (nodeById.get(nid)?.width || 120), 0)
-                + NODE_GAP_X * Math.max(0, lvNodes.length - 1);
-      if (w > maxLevelWidth) maxLevelWidth = w;
+    // Rule L1/L2/L4: Structure Zone(순수 containment root, 즉 specialization
+    // 그래프에 속하지 않는 최상위 노드들의 서브트리)의 bbox를 먼저 확정한다.
+    // 예) test-2의 Canvas(→Layer→Rectangle/Circle/Triangle, RenderEngine 등)
+    // test-1처럼 최상위 노드 자체가 spec 노드(Vehicle)인 경우는 별도 Structure
+    // Zone이 없는 것으로 간주(null)하고 기존 방식(level0CX 평균)을 사용한다.
+    let structureZoneBBox = null;
+    for (const n of elements) {
+      if (n.parent) continue;
+      if (allSpecNodes.has(n.id)) continue;
+      const ids = collectSubtreeIds(n.id, new Set());
+      const bb = getSubtreeBBox(n.id, ids);
+      if (!structureZoneBBox) {
+        structureZoneBBox = { minX: bb.minX, minY: bb.minY, maxX: bb.maxX, maxY: bb.maxY };
+      } else {
+        structureZoneBBox.minX = Math.min(structureZoneBBox.minX, bb.minX);
+        structureZoneBBox.minY = Math.min(structureZoneBBox.minY, bb.minY);
+        structureZoneBBox.maxX = Math.max(structureZoneBBox.maxX, bb.maxX);
+        structureZoneBBox.maxY = Math.max(structureZoneBBox.maxY, bb.maxY);
+      }
     }
-    const diagCX = START_X + maxLevelWidth / 2;
 
-    // 레벨별 Y를 실제 노드 높이 기반으로 누적 계산
-    const levelY = new Map();
+    let diagCX;
+    if (structureZoneBBox) {
+      // Rule L1/L4: Type Hierarchy Zone(specialization)을 Structure Zone과
+      // X축으로 겹치지 않는 영역(우측)에 배치한다. 행 폭(가장 넓은 레벨)을
+      // 미리 계산해 Zone 폭을 확보한다.
+      const ZONE_GAP_X = 120;
+      let maxRowWidth = 0;
+      for (let lv = 0; lv <= maxLevel; lv++) {
+        const nodes = byLevel.get(lv) || [];
+        const movable = nodes.filter(nid => !(nodeById.get(nid)?.parent));
+        if (movable.length === 0) continue;
+        let w = 0;
+        for (const nid of movable) {
+          const ids = collectSubtreeIds(nid, new Set());
+          w += getSubtreeBBox(nid, ids).width;
+        }
+        w += NODE_GAP_X * (movable.length - 1);
+        maxRowWidth = Math.max(maxRowWidth, w);
+      }
+      diagCX = structureZoneBBox.maxX + ZONE_GAP_X + maxRowWidth / 2;
+    } else {
+      // 레벨 0(최상위 부모) 노드들의 현재 중심 X를 기준으로 diagCX 계산
+      const level0 = byLevel.get(0) || [];
+      const level0CX = level0.map(nid => {
+        const n = nodeById.get(nid);
+        return n ? (n.x || 0) + (n.width || 120) / 2 : START_X;
+      });
+      diagCX = level0CX.length > 0
+        ? level0CX.reduce((a, b) => a + b, 0) / level0CX.length
+        : START_X;
+    }
+
+    const nodeCX = new Map(); // nid → 이동 후 서브트리 중심 X
     let currentY = START_Y;
-    for (let lv = 0; lv <= maxLevel; lv++) {
-      levelY.set(lv, currentY);
-      const lvNodes = byLevel.get(lv) || [];
-      const maxH = lvNodes.reduce((mx, nid) => Math.max(mx, nodeById.get(nid)?.height || 120), 120);
-      currentY += maxH + LEVEL_GAP_Y;
-    }
-
-    const nodeCX = new Map(); // nid → center X 배치 결과
 
     for (let lv = 0; lv <= maxLevel; lv++) {
       const nodes = byLevel.get(lv) || [];
       if (nodes.length === 0) continue;
 
-      // 평균 부모 CX 기준 정렬
+      // Rule H2-13: containment child(이미 containment parent 내부에 소속된 노드)는
+      // specialization 레이아웃 단계에서 재배치할 수 없다.
+      // → containment 부모를 가진 spec 노드는 이동 대상에서 제외하고, 현재 위치를
+      //   그대로 nodeCX에 반영해 specialization edge routing의 기준점으로만 사용한다.
+      const fixedNodes = nodes.filter(nid => !!(nodeById.get(nid)?.parent));
+      const movableNodes = nodes.filter(nid => !(nodeById.get(nid)?.parent));
+
+      for (const nid of fixedNodes) {
+        const n = nodeById.get(nid);
+        if (!n) continue;
+        nodeCX.set(nid, (n.x || 0) + (n.width || 0) / 2);
+      }
+
+      // 평균 부모 CX 기준 정렬 (Rule M3)
       const avgParentCX = (nid) => {
         const pars = specParentsOf.get(nid) || [];
         if (pars.length === 0) return nodeCX.get(nid) ?? diagCX;
         const sum = pars.reduce((acc, p) => acc + (nodeCX.get(p) ?? diagCX), 0);
         return sum / pars.length;
       };
-      nodes.sort((a, b) => avgParentCX(a) - avgParentCX(b));
+      movableNodes.sort((a, b) => avgParentCX(a) - avgParentCX(b));
 
-      // 전체 행 폭 계산
-      let totalWidth = 0;
-      for (const nid of nodes) {
-        const n = nodeById.get(nid);
-        totalWidth += (n?.width || 120);
+      // 각 노드의 서브트리(자기 자신 + containment 자식 전체) 수집 및 현재 bbox 계산
+      const subtreeIds = new Map();
+      const bboxes = new Map();
+      for (const nid of movableNodes) {
+        const ids = collectSubtreeIds(nid, new Set());
+        subtreeIds.set(nid, ids);
+        bboxes.set(nid, getSubtreeBBox(nid, ids));
       }
-      totalWidth += NODE_GAP_X * (nodes.length - 1);
 
-      let startX = diagCX - totalWidth / 2;
-      const y = levelY.get(lv);
+      // Rule H2-6: 전체 행 폭 = Σ subtree width + gap (이동 대상 노드만)
+      let totalWidth = 0;
+      for (const nid of movableNodes) totalWidth += bboxes.get(nid).width;
+      totalWidth += NODE_GAP_X * Math.max(0, movableNodes.length - 1);
 
-      for (const nid of nodes) {
+      let cursorX = diagCX - totalWidth / 2;
+      let maxLevelHeight = 0;
+
+      for (const nid of movableNodes) {
         const n = nodeById.get(nid);
         if (!n) continue;
-        const w = n.width || 120;
-        n.x = startX;
-        n.y = y;
-        // spec 노드는 containment parent를 제거하여 mxGraph가 루트로 렌더링하도록 함
-        // (ELK 계산은 이미 완료된 후이므로 allElkEdges/buildHierarchy에 영향 없음)
-        if (n.parent) {
-          delete n.parent;
-        }
-        n.relativeX = n.x;
-        n.relativeY = n.y;
-        nodeCX.set(nid, startX + w / 2);
-        startX += w + NODE_GAP_X;
+        const ids = subtreeIds.get(nid);
+        const bbox = bboxes.get(nid);
+
+        // 서브트리 좌상단(bbox.minX, bbox.minY)을 (cursorX, currentY)로 이동
+        const dx = cursorX - bbox.minX;
+        const dy = currentY - bbox.minY;
+        moveSubtree(nid, dx, dy, ids);
+
+        nodeCX.set(nid, cursorX + bbox.width / 2);
+        maxLevelHeight = Math.max(maxLevelHeight, bbox.height);
+        cursorX += bbox.width + NODE_GAP_X;
+      }
+
+      // fixed 노드들의 높이도 레벨 높이 계산에 반영 (currentY 진행에 영향 없도록 비교만)
+      for (const nid of fixedNodes) {
+        const n = nodeById.get(nid);
+        if (!n) continue;
+        maxLevelHeight = Math.max(maxLevelHeight, n.height || 0);
+      }
+
+      if (movableNodes.length > 0) {
+        currentY += maxLevelHeight + LEVEL_GAP_Y;
       }
     }
+
+    // 이동된 spec 노드가 자신의 containment 부모(있는 경우) 경계를 벗어났다면 보정
+    // (자식들은 relativeX/Y 불변이므로 이 보정만으로 서브트리 전체가 안전하게 들어감)
+    clampChildrenToParent(elements, nodeById);
 
     // specialization 엣지에 entryX 힌트 저장 (MxEdgeBuilder에서 사용)
     for (const e of connections) {
