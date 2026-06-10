@@ -898,7 +898,11 @@
       // Root Type/depth 계산에서 제외한다. usage가 관여하는 specialization
       // edge는 spec 그래프 구축 단계에서 제외한다.
       const isUsage = (nid) => String(nodeById.get(nid)?.kind || nodeById.get(nid)?.type || '').toLowerCase().includes('usage');
-      if (isUsage(child) || isUsage(parent)) continue;
+      // Rule P2: portdefinition은 specialization edge의 target/source가 될 수 있으나
+      // Root Type 결정 / Parent Set Group / Structure Zone(Type Hierarchy Zone A) 계산에서는
+      // 제외한다 (GeomPort/ColorPort/RenderPort 등이 Zone A로 끌려 올라가는 것을 방지).
+      const isPort = (nid) => String(nodeById.get(nid)?.kind || nodeById.get(nid)?.type || '').toLowerCase().includes('portdefinition');
+      if (isUsage(child) || isUsage(parent) || isPort(child) || isPort(parent)) continue;
       if (!specParentsOf.has(child)) specParentsOf.set(child, []);
       specParentsOf.get(child).push(parent);
       if (!specChildrenOf.has(parent)) specChildrenOf.set(parent, []);
