@@ -1221,6 +1221,160 @@ association 또는 featureTyping 엣지가 containment 영역(Structure Zone)을
 
 ---
 
+## Rule O9. Edge Type Routing Priority
+
+모든 엣지는 관계 종류별 전용 채널을 가진다.
+
+우선순위
+
+```
+specialization > containment > featureTyping > association
+```
+
+- 상위 우선순위 엣지는 더 직선적이고 짧은 경로(채널)를 우선 차지한다.
+- 하위 우선순위 엣지는 상위 엣지의 경로/채널을 피해 우회 경로를 선택한다.
+- 동일 영역에서 specialization, association, featureTyping 엣지가 같은 채널을 공유하여 시각적으로 섞이지 않도록 한다.
+
+---
+
+## Rule O10. Specialization Spine
+
+BDD에서 타입 계층(specialization)은 가장 우선되는 시각 요소이며, 하나의 "Spine"(축)을 형성한다.
+
+- 동일 depth의 specialization edge들은 공통 수직 채널(vertical channel)을 공유한다.
+- specialization edge는 association/featureTyping보다 우선적으로 직선 경로를 사용한다.
+- 여러 부모를 specialize하는 경우(M1~M3 참고), 부모들은 자식 위에 나란히 배치되고 specialization edge들은 다음과 같은 Spine 형태를 이룬다.
+
+```
+Shape   Drawable   Resizable
+   \       |          /
+         Polygon
+```
+
+---
+
+## Rule O11. FeatureTyping Locality
+
+featureTyping 엣지는 source feature(예: `engine`)와 typed definition(예: `Engine`) 사이의 **국소(local) 연결**을 유지해야 한다.
+
+배치 우선순위
+
+1. typed node 바로 위/아래에 feature를 배치
+2. typed node와 동일 container 내부에 배치
+3. 최소 bend(꺾임) 경로
+4. 최소 crossing(교차) 경로
+
+허용 조건: `feature ↔ typed node` 거리는 Local Radius(예: 인접 노드 1~2칸 이내) 이하여야 한다. 이를 초과하는 길게 늘어진 featureTyping 엣지(예: `engine → RenderEngine`, `layer → Layer`, `circle → Circle`, `rect → Rectangle`처럼 캔버스를 가로지르는 형태)는 금지되며, feature 노드를 typed node에 인접하도록 재배치한다.
+
+---
+
+## Rule O12. Container Escape Routing
+
+association 또는 featureTyping 엣지가 containment container 경계를 벗어나야 하는 경우, 다음 순서로 라우팅한다.
+
+1. source container의 boundary까지 이동
+2. boundary를 따라 이동(Boundary Routing, O8 참고)
+3. target container의 boundary로 진입
+
+컨테이너(Canvas, Layer, Rectangle, Circle 등) 내부를 가로질러 무관한 노드 위를 통과하는 경로는 금지된다.
+
+---
+
+## Rule O13. Edge Crossing Cost
+
+라우팅 경로 선택은 다음 비용 함수를 최소화하는 방향으로 이루어진다.
+
+```
+Cost =
+    1000 × nodeOverlap
+  +  500 × containerCrossing
+  +  100 × edgeCrossing
+  +   10 × bendCount
+  +        pathLength
+```
+
+- `nodeOverlap`: 엣지가 무관한 노드 위를 통과하는 횟수
+- `containerCrossing`: 엣지가 무관한 컨테이너 경계를 가로지르는 횟수
+- `edgeCrossing`: 다른 엣지와 교차하는 횟수
+- `bendCount`: 꺾임 횟수
+- `pathLength`: 경로 길이
+
+여러 라우팅 후보 중 Cost가 최소인 경로를 선택한다.
+
+---
+
+## Rule O14. Orthogonal Quality Score
+
+전체 라우팅 품질은 다음 가중 점수로 평가한다.
+
+```
+Score =
+    40% Crossing
+  + 20% Node Clearance
+  + 15% Bend Count
+  + 10% Symmetry
+  + 10% Hierarchy Preservation
+  +  5% Edge Length
+```
+
+각 항목은 0~100 정규화 점수이며, 전체 Score를 최대화하는 레이아웃을 목표로 한다.
+
+---
+
+## Rule O15. Edge Anchor Consistency
+
+엣지 종류별로 시작/종단 anchor를 고정하여, 동일 관계는 항상 동일한 anchor 규칙을 따른다.
+
+| 관계 | 시작(anchor) | 종단(anchor) |
+|------|---------------|---------------|
+| specialization | child.top | parent.bottom |
+| containment | child.top | parent.bottom |
+| featureTyping | source.bottom | target.top |
+| association | nearest side anchor (가장 가까운 변) |
+
+---
+
+## Rule O16. Edge Rendering Pipeline
+
+엣지 관련 규칙(O9~O15)은 서로 독립적이지 않으며, 다음 파이프라인 순서로 적용되어야 한다. 순서를 어기면 (예: Spine 계산 후 Boundary Routing이 Spine을 깨뜨리는 등) 규칙 간 충돌이 발생할 수 있다.
+
+```
+Node Layout (D/P/A/H/L 규칙 적용 완료)
+  ↓
+O11. FeatureTyping Locality   — feature 노드를 typed 인접으로 재배치
+  ↓
+O15. Edge Anchor Consistency  — 관계별 anchor(시작/종단점) 결정
+  ↓
+O12. Container Escape Routing — Boundary Routing 적용 (O6/O8 구현)
+  ↓
+O10. Specialization Spine     — 확정된 라우팅 위에서 specialization 축 정렬
+  ↓
+O9. Edge Type Routing Priority — 관계별 채널(channel) 배정
+  ↓
+O13. Edge Crossing Cost        — 비용 함수 기반 최종 최적화
+  ↓
+Edge Rendering
+```
+
+요약: **배치 → Anchor → Routing → Spine → Channel → Cost → 렌더링** 순서를 따른다.
+
+---
+
+## O-Rule 적용 우선순위
+
+현재 렌더링 결과(엣지 교차/관통 다수)를 개선하기 위한 적용 순서:
+
+1. **O11. FeatureTyping Locality** — `engine→RenderEngine`, `layer→Layer`, `circle→Circle`, `rect→Rectangle` 같은 장거리 featureTyping 엣지를 제거하고, feature 노드를 typed node 바로 위/아래에 인접 배치한다 (D10/H3-5 위반 동시 해소). ROI 최고, 1순위.
+2. **O15. Edge Anchor Consistency** — specialization/containment는 child.top→parent.bottom, featureTyping은 source.bottom→target.top으로 anchor를 통일한다. 구현 난이도가 낮고, O11과 결합 시 선 모양이 즉시 안정된다. 2순위.
+3. **O12. Container Escape Routing** — Canvas/Layer/Rectangle/Circle 내부 관통을 제거한다. 이는 새로운 의미론이 아니라 기존 **O6(Container Bbox 통과 금지) + O8(Boundary Routing)의 실제 구현**이며, O3(Crossing)/O4(Node Overlap) 위반의 직접 원인을 해소한다. 현재 체감 문제(엣지가 노드/컨테이너 위를 지나감)가 Spine 미흡보다 심각하므로 3순위.
+4. **O10. Specialization Spine** — `Shape/Drawable/Resizable → Polygon`, `Polygon/Triangle/Circle → ...` 같은 specialization 계층을 공통 수직 채널(Spine)로 정리한다. O12(라우팅 규칙 확정) 이후에 적용해야 Boundary Routing이 다시 Spine을 깨뜨리는 일을 방지할 수 있다. 4순위.
+5. **O9. Edge Type Routing Priority** — specialization/containment/featureTyping/association 채널 분리. O11/O15/O12/O10이 선행되지 않으면 효과가 작으므로 5순위.
+6. **O13. Edge Crossing Cost** — 위 5개 적용 후 남는 교차를 비용 함수(A*/Orthogonal Router 수준) 기반으로 최소화. 가장 마지막.
+
+> 참고: O11 + O15 적용만으로도 현재 화면의 엣지 품질이 체감상 60~70% 개선될 것으로 예상되나, O13까지 가야 완료로 볼 수 있다. O12를 O10보다 먼저 적용해 라우팅 규칙을 먼저 확정한 뒤, 그 위에서 O10(Specialization Spine)을 안정적으로 구성한다.
+
+---
+
 # 6. SysML v2 의미론 보존 규칙
 
 specialization
