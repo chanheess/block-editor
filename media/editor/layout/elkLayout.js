@@ -1139,7 +1139,7 @@
       // Rule L1/L4: Type Hierarchy Zone(specialization)을 Structure Zone과
       // X축으로 겹치지 않는 영역(우측)에 배치한다. 행 폭(가장 넓은 레벨)을
       // 미리 계산해 Zone 폭을 확보한다.
-      const ZONE_GAP_X = 120;
+      const ZONE_GAP_X = 60;
       let maxRowWidth = 0;
       for (let lv = 0; lv <= maxLevel; lv++) {
         const nodes = byLevel.get(lv) || [];
@@ -1168,6 +1168,56 @@
 
     const nodeCX = new Map(); // nid → 이동 후 서브트리 중심 X
     let currentY = START_Y;
+    const movableSpecIds = []; // Zone 수직 정렬용: 실제 이동된 spec 노드(컨테이너 자식 아님)
+
+    // Rule O10-2 (Crossing Minimization): 반복 barycenter 정렬로 각 레벨 내
+    // 이동 가능한 spec 노드의 좌우 순서를 인접 레벨(부모/자식)의 평균 위치에
+    // 맞춰 정한다. 다중 상속(노드 하나가 여러 상위를 가짐) 시 단일 패스 정렬은
+    // 상하 레벨 순서가 어긋나 엣지가 부채꼴로 교차하는데, down/up 스윕을 반복하면
+    // 양쪽 레벨 순서가 수렴해 교차가 줄어든다. dual-role(컨테이너 자식) 노드는
+    // 실제 위치(pixel)에 고정해 기준점으로만 쓰므로 containment(H2)·zone(L1/L4)
+    // 규칙을 침범하지 않는다. structureZoneBBox가 있는 경우(교차가 잦은 Canvas/
+    // Organization/System류)에만 적용해 이미 안정적인 Vehicle류는 건드리지 않는다.
+    const baryOrder = new Map(); // nid → 레벨 내 정렬 인덱스
+    if (structureZoneBBox) {
+      const isFixedSpec = (nid) => !!(nodeById.get(nid)?.parent);
+      const realCX = (nid) => {
+        const n = nodeById.get(nid);
+        return n ? (n.x || 0) + (n.width || 120) / 2 : 0;
+      };
+      const pos = new Map();
+      for (const nid of allSpecNodes) {
+        if (!isUsageNode(nid)) pos.set(nid, realCX(nid));
+      }
+      const neighborAvg = (nid, rel) => {
+        const arr = (rel === 'up' ? specParentsOf : specChildrenOf).get(nid) || [];
+        const vals = arr.filter(x => !isUsageNode(x) && pos.has(x)).map(x => pos.get(x));
+        if (vals.length === 0) return pos.get(nid);
+        return vals.reduce((a, b) => a + b, 0) / vals.length;
+      };
+      for (let it = 0; it < 5; it++) {
+        // down 스윕: 부모 평균
+        for (let lv = 1; lv <= maxLevel; lv++) {
+          for (const nid of (byLevel.get(lv) || [])) {
+            if (isUsageNode(nid) || isFixedSpec(nid)) continue;
+            pos.set(nid, neighborAvg(nid, 'up'));
+          }
+        }
+        // up 스윕: 자식 평균
+        for (let lv = maxLevel - 1; lv >= 0; lv--) {
+          for (const nid of (byLevel.get(lv) || [])) {
+            if (isUsageNode(nid) || isFixedSpec(nid)) continue;
+            pos.set(nid, neighborAvg(nid, 'down'));
+          }
+        }
+      }
+      for (let lv = 0; lv <= maxLevel; lv++) {
+        const movable = (byLevel.get(lv) || [])
+          .filter(nid => !isUsageNode(nid) && !isFixedSpec(nid));
+        movable.sort((a, b) => pos.get(a) - pos.get(b));
+        movable.forEach((nid, i) => baryOrder.set(nid, i));
+      }
+    }
 
     for (let lv = 0; lv <= maxLevel; lv++) {
       const nodes = byLevel.get(lv) || [];
@@ -1210,7 +1260,11 @@
         const sum = pars.reduce((acc, p) => acc + (nodeCX.get(p) ?? diagCX), 0);
         return sum / pars.length;
       };
-      movableNodes.sort((a, b) => avgParentCX(a) - avgParentCX(b));
+      // O10-2: barycenter 순서가 있으면 우선 사용(교차 최소화), 없으면 기존 M3
+      movableNodes.sort((a, b) => {
+        if (baryOrder.has(a) && baryOrder.has(b)) return baryOrder.get(a) - baryOrder.get(b);
+        return avgParentCX(a) - avgParentCX(b);
+      });
 
       // 각 노드의 서브트리(자기 자신 + containment 자식 전체) 수집 및 현재 bbox 계산
       const subtreeIds = new Map();
@@ -1243,6 +1297,7 @@
         nodeCX.set(nid, cursorX + bbox.width / 2);
         maxLevelHeight = Math.max(maxLevelHeight, bbox.height);
         cursorX += bbox.width + NODE_GAP_X;
+        movableSpecIds.push(nid);
       }
 
       // fixed 노드들의 높이도 레벨 높이 계산에 반영 (currentY 진행에 영향 없도록 비교만)
@@ -1254,6 +1309,36 @@
 
       if (movableNodes.length > 0) {
         currentY += maxLevelHeight + LEVEL_GAP_Y;
+      }
+    }
+
+    // Rule O10 (Specialization Spine - Vertical Alignment): Type Hierarchy Zone은
+    // 항상 START_Y(캔버스 최상단)에서 시작해 아래로 쌓이므로, 캔버스 중앙에 위치한
+    // dual-role 자식(Triangle/Circle/Rectangle 등)과 수직으로 어긋나 cross-container
+    // specialization 엣지가 긴 대각선이 된다. structureZoneBBox가 있는 경우(즉 별도
+    // Structure Zone이 존재하는 Canvas/Organization류), Zone 전체를 Structure Zone과
+    // 수직 중심이 맞도록 통째로(rigid) 내려 대각선을 짧고 수평에 가깝게 만든다.
+    // (Vehicle처럼 structureZoneBBox=null인 경우는 건드리지 않는다.)
+    if (structureZoneBBox && movableSpecIds.length > 0) {
+      let zMinY = Infinity, zMaxY = -Infinity;
+      for (const nid of movableSpecIds) {
+        const ids = collectSubtreeIds(nid, new Set());
+        const bb = getSubtreeBBox(nid, ids);
+        zMinY = Math.min(zMinY, bb.minY);
+        zMaxY = Math.max(zMaxY, bb.maxY);
+      }
+      if (zMinY !== Infinity) {
+        const zoneCenterY = (zMinY + zMaxY) / 2;
+        const structCenterY = (structureZoneBBox.minY + structureZoneBBox.maxY) / 2;
+        const dy = structCenterY - zoneCenterY;
+        // 위로 올려 음수 좌표가 되는 것은 방지(START_Y 위로는 올리지 않음)
+        const safeDy = Math.max(dy, START_Y - zMinY);
+        if (Math.abs(safeDy) > 1) {
+          for (const nid of movableSpecIds) {
+            const ids = collectSubtreeIds(nid, new Set());
+            moveSubtree(nid, 0, safeDy, ids);
+          }
+        }
       }
     }
 

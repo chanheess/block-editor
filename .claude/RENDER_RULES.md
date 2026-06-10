@@ -1253,6 +1253,42 @@ Shape   Drawable   Resizable
 
 ---
 
+## Rule O10-1. Type Hierarchy Zone 수직 정렬
+
+Type Hierarchy Zone(specialization 상위 노드 묶음)은 항상 캔버스 최상단(START_Y)에서
+시작해 아래로 쌓이므로, 캔버스 중앙에 위치한 dual-role 자식(Triangle/Circle/Rectangle
+등)과 수직으로 어긋나 cross-container specialization 엣지가 긴 대각선이 된다.
+
+- 별도 Structure Zone이 존재하는 경우(`structureZoneBBox`가 있는 Canvas/Organization/
+  System류), Zone 전체를 Structure Zone과 **수직 중심이 맞도록 통째로(rigid) 이동**해
+  cross-container 엣지를 짧고 수평에 가깝게 만든다.
+- 위로 올려 음수 좌표가 되는 것은 방지한다(`START_Y` 위로는 올리지 않음).
+- Vehicle처럼 `structureZoneBBox=null`(별도 Structure Zone 없음)인 경우는 적용하지 않는다.
+
+> 구현 위치: `elkLayout.js` (spec 레벨 배치 루프 종료 후 `movableSpecIds` 전체를
+> `safeDy`만큼 `moveSubtree`).
+
+---
+
+## Rule O10-2. Crossing Minimization (반복 barycenter 정렬)
+
+다중 상속(노드 하나가 여러 상위를 specialize, 예: Polygon→Shape/Drawable/Resizable)이
+있으면 단일 패스 정렬(level0=자식 기준, 하위=부모 기준)은 상하 레벨의 좌우 순서가
+어긋나 엣지가 부채꼴로 교차한다.
+
+- 각 레벨 내 **이동 가능한** spec 노드의 좌우 순서를 인접 레벨(부모/자식)의 평균
+  위치 기준으로 정한다. down 스윕(부모 평균) → up 스윕(자식 평균)을 반복(5회)하면
+  양쪽 레벨 순서가 수렴해 교차가 줄어든다.
+- dual-role(컨테이너 자식) 노드는 실제 위치(pixel)에 **고정**해 barycenter 기준점으로만
+  사용한다. 순서만 재정렬할 뿐 노드를 컨테이너 밖으로 빼지 않으므로 H2(containment)·
+  L1/L4(zone) 규칙을 침범하지 않는다.
+- `structureZoneBBox`가 있을 때만 적용한다(이미 안정적인 Vehicle류는 미적용).
+
+> 구현 위치: `elkLayout.js` (배치 루프 직전 `baryOrder` 산출, 루프 내 `movableNodes`
+> 정렬에 `baryOrder` 우선 사용 · 없으면 기존 M3 `avgParentCX`).
+
+---
+
 ## Rule O11. FeatureTyping Locality
 
 featureTyping 엣지는 source feature(예: `engine`)와 typed definition(예: `Engine`) 사이의 **국소(local) 연결**을 유지해야 한다.
