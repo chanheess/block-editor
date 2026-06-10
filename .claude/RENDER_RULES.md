@@ -1707,6 +1707,58 @@ Dual Role Node(Rectangle/Circle/Triangle 등)가 containment 내부에 위치하
 
 ---
 
+## Rule L8. Dual Role Projection (L7의 정식화)
+
+Dual Role Node(예: `Triangle`)는 두 개의 좌표를 동시에 가진다.
+
+- **실제 좌표** (`x`, `y`): containment(Layer 등)에 의해 결정되는 Zone B 위치. 렌더링은 이 좌표로만 이루어진다.
+- **Projection 좌표** (`_specVirtualCX`, `_specVirtualCY`): specialization 부모(Polygon)의 spine 축 위에 있는 Zone A 가상 위치(`Triangle*`). 별도 노드로 렌더링하지 않는다.
+
+> RightTriangle을 "Triangle 아래"로 옮기면 L3(Free Specialization Node는 Zone A)와
+> L4(Spec Node ∩ Container 금지)를 위반한다 — Triangle이 Layer 내부(Zone B)에
+> 있으므로 그 바로 아래는 Zone B 영역이기 때문이다. L8은 Triangle의 실제 위치는
+> 그대로 두고, specialization 계산에만 쓰이는 `Triangle*`(Projection)을 Zone A에
+> 별도로 두어 이 충돌을 피한다.
+
+```
+Semantic Parent:  RightTriangle → Triangle   (SysML 의미론, 렌더링 불필요)
+Layout Parent:    RightTriangle → Triangle*  (배치/엣지 계산용 가상 부모)
+```
+
+---
+
+## Rule M8. Projection Parent Rule (M7의 정식화)
+
+Free Specialization Node(RightTriangle, EquilateralTriangle 등)의 부모가 Dual Role
+Node인 경우, M2/M3(평균 부모 CX)는 부모의 **실제 좌표가 아니라 L8 Projection
+좌표(`Triangle*`)** 를 사용한다.
+
+```
+Polygon
+   ▲
+Triangle*  (L8 projection: _specVirtualCX/_specVirtualCY)
+   ▲
+RightTriangle  (M8: Triangle*의 CX/CY 기준으로 배치)
+```
+
+> 구현: O17(`fixedNodes`의 `nodeCX` 계산)이 이미 이 규칙을 구현한다.
+
+---
+
+## Rule O18. Projection Edge Collapse (L7-1의 정식화)
+
+`RightTriangle -> Triangle` 같은 specialization 엣지의 entry 지점은 Triangle의
+실제 박스 경계가 아니라 **`Triangle*`(Projection) 위치**(`_specVirtualCX`,
+`_specVirtualCY + height`)로 "투영(collapse)"한다. `Triangle*`는 화면에 그려지지
+않으므로, 결과적으로 엣지는 RightTriangle 바로 위 Polygon spine 축 위의 한 점에서
+끝나며, RightTriangle은 M8에 의해 이미 그 축 위에 배치되어 있으므로 짧은 직선
+엣지가 된다.
+
+> 구현: M5 + L7-1 anchor 계산(`targetHasVirtual` 분기)이 이미 이 규칙을 구현한다.
+> O12(Container Escape Routing)는 이 엣지에는 적용하지 않는다(2점 직선 강제).
+
+---
+
 # 10. 레이아웃 품질 평가
 
 ## 평가 항목

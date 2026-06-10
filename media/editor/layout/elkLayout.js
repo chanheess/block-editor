@@ -1402,6 +1402,18 @@
     // 가장 가까운 외곽(side)을 결정한다. 동일 레벨(수평 차이가 더 큼) → 좌우(E/W),
     // 상하 레벨(수직 차이가 더 큼) → 상하(N/S). MxEdgeBuilder에서 ELK waypoint가 없는
     // (주로 cross-container) association/connector 엣지에 적용된다.
+    // Rule O15-2: Ancestor Association Suppression — association/connector의
+    // target이 source를 포함하는 상위 컨테이너(예: Layer → Canvas)인 경우, 이미
+    // containment(중첩)로 포함관계가 표현되어 있으므로 별도의 엣지는 중복이다.
+    // 해당 엣지는 렌더링하지 않는다(_skipRender).
+    const isAncestorOf = (ancNode, descId) => {
+      let cur = nodeById.get(descId);
+      while (cur && cur.parent) {
+        if (cur.parent === ancNode.id) return true;
+        cur = nodeById.get(cur.parent);
+      }
+      return false;
+    };
     for (const e of connections) {
       const kind = String(e.kind || e.type || '').toLowerCase();
       if (kind !== 'association' && kind !== 'connector' && kind !== 'featuretyping') continue;
@@ -1412,6 +1424,13 @@
       const scy = (s.y || 0) + (s.height || 60) / 2;
       const tcx = (t.x || 0) + (t.width || 120) / 2;
       const tcy = (t.y || 0) + (t.height || 60) / 2;
+
+      if ((kind === 'association' || kind === 'connector') &&
+          (isAncestorOf(t, e.source) || isAncestorOf(s, e.target))) {
+        e._skipRender = true;
+        continue;
+      }
+
       const dx = tcx - scx;
       const dy = tcy - scy;
       // Rule O15-1 (featureTyping Anchor 동적화): typed node가 feature 바로 아래에

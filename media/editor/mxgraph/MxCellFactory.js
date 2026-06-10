@@ -289,6 +289,7 @@
                 resizeParentsToFitChildren(graph, parent, cellMap, nodes);
 
                 edges.forEach(edge => {
+                    if (edge._skipRender) return;
                     _createEdge(graph, parent, edge, cellMap, borderNodeIds);
                 });
 
