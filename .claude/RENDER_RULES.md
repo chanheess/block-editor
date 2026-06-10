@@ -233,6 +233,218 @@ association
 
 ---
 
+# 2.6. PortDefinition 규칙
+
+## Rule P1. PortDefinition은 Definition이다.
+
+portdefinition은 SysML v2의 Port Type이다.
+
+PortDefinition은 PartDefinition과 동일하게 Definition 계열 노드로 취급한다.
+
+예)
+
+```text
+GeomPort
+ColorPort
+RenderPort
+```
+
+PortDefinition은 다음 관계의 target이 될 수 있다.
+
+- featureTyping
+- containment
+- association
+- specialization
+
+## Rule P2. PortDefinition은 Type Hierarchy Root가 아니다.
+
+PortDefinition은 Definition이지만 BDD의 주요 타입 계층(Type Hierarchy) 계산 대상은 아니다.
+
+다음 계산에서 제외한다.
+
+- Root Type 결정
+- Parent Set Group 계산
+- Structure Zone 계산
+
+즉
+
+```text
+Shape
+ └ ColorPort
+```
+
+에서 ColorPort가 Shape 위로 올라가면 안 된다.
+
+## Rule P3. PortDefinition은 Owner 내부에 존재한다.
+
+PortDefinition이 containment 관계를 가지면 반드시 Owner 내부에 존재해야 한다.
+
+예)
+
+```text
+Rectangle
+ └ GeomPort
+```
+
+이면 GeomPort는 Rectangle 내부에 배치한다.
+
+```text
+GeomPort
+```
+
+를 Rectangle 밖에 별도 렌더링하면 안 된다.
+
+(H2-9, H2-10 연동)
+
+## Rule P4. Shared PortDefinition 단일 렌더링
+
+동일 PortDefinition은 한 번만 렌더링한다.
+
+예)
+
+```text
+Rectangle ──► GeomPort
+Circle ─────► GeomPort
+```
+
+GeomPort는 하나만 존재한다.
+
+다음은 금지.
+
+```text
+Rectangle
+ └ GeomPort
+
+Circle
+ └ GeomPort
+```
+
+(복제)
+
+이는 D5 Shared Definition과 동일한 원칙이다.
+
+## Rule P5. PortDefinition은 Structure Zone에 속한다.
+
+PortDefinition은 항상 Owner의 Structure Zone 내부에 존재한다.
+
+```text
+Canvas
+ └ Layer
+     └ Rectangle
+         └ GeomPort
+```
+
+GeomPort는 Rectangle 내부에 존재해야 한다.
+
+PortDefinition 때문에 Type Hierarchy Zone을 생성하면 안 된다.
+
+## Rule P6. PortDefinition Dominance
+
+PortDefinition은 위치 결정 권한을 가지지 않는다.
+
+우선순위
+
+```text
+containment
+>
+specialization
+>
+featureTyping
+>
+portdefinition
+>
+association
+```
+
+PortDefinition 때문에 Owner 노드를 이동시키면 안 된다.
+
+반대로 Owner 위치가 결정되면 PortDefinition이 이동하는 것은 허용된다.
+
+## Rule P7. Shared Definition 우선
+
+PortDefinition이 여러 Owner에 의해 공유되더라도
+
+```text
+Rectangle ─► GeomPort
+Circle ─────► GeomPort
+```
+
+PortDefinition은 복제하지 않는다.
+
+대신
+
+```text
+Rectangle
+      \
+       \
+        GeomPort
+       /
+      /
+Circle
+```
+
+처럼 Shared Definition으로 유지한다.
+
+(D5 확장 규칙)
+
+## Rule P8. PortDefinition은 FeatureTyping Target 우선
+
+PortDefinition은 일반적으로 FeatureTyping의 target 역할을 수행한다.
+
+예)
+
+```text
+powerPort
+     ▼
+ PowerPort
+```
+
+여기서 `powerPort`는 PartUsage, `PowerPort`는 PortDefinition이다.
+
+PortDefinition은 FeatureTyping에 의해 이동하지 않는다.
+
+(H3-2 연동)
+
+## Rule P9. PortDefinition은 AttributeDefinition보다 우선 (권장)
+
+```text
+Rectangle
+ ├ width
+ ├ height
+ ├ color
+ └ GeomPort
+```
+
+포트는 속성과 다른 영역으로 취급한다.
+
+권장 배치
+
+```text
+Rectangle
+├ Attributes
+│  ├ width
+│  ├ height
+│  └ color
+│
+└ Ports
+   └ GeomPort
+```
+
+즉
+
+```text
+attribute
+port
+attribute
+port
+```
+
+처럼 섞어 배치하지 않는다.
+
+이 규칙이 있어야 향후 SysML v2 BDD와 IBD 스타일 모두 확장하기 쉽다.
+
+---
+
 # 3. 계층 규칙
 
 ## Rule H0. 최상위 부모(Root Type) 최상단 배치 [Priority 1]
