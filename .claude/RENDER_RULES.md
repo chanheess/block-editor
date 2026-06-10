@@ -387,6 +387,106 @@ ECU ─────► Engine
 - 계층 구조에 포함하지 않음
 - 가장 마지막에 라우팅
 
+SysML v2 BDD 의미론상 각 관계의 역할은 다음과 같이 구분된다.
+
+```
+containment   = 소유 (has-a)
+featureTyping = 타입 참조 (typed-by)
+specialization = 상속 (is-a)
+association   = 참조 (reference)
+```
+
+association은 reference 관계이므로 위치 결정 권한, 계층 생성 권한, container 생성
+권한을 갖지 않는다.
+
+### Rule H4-1. Association은 계층 생성 금지
+
+association은 reference 관계이다.
+
+association은 새로운 depth를 생성하지 않는다. 다음과 같은 계산은 금지한다.
+
+```
+target.depth = source.depth + 1
+```
+
+association은 specialization, containment, featureTyping 계층 계산에 참여하지
+않는다. (H3-1 대응 규칙)
+
+### Rule H4-2. Association 위치 영향 금지
+
+association은 source와 target의 위치를 변경할 수 없다.
+
+노드 위치는 다음 단계에서 이미 결정되어야 한다.
+
+```
+Root → specialization → containment → featureTyping
+```
+
+association은 routing(엣지 경로 계산)만 수행한다.
+
+예) `RenderEngine ─────► Rectangle` 관계가 있다고 해서 `Rectangle.x`를 변경해서는
+안 된다.
+
+### Rule H4-3. Association Zone 이동 금지
+
+association은 노드를 다른 Zone(L1~L7의 Zone A: Type Hierarchy, Zone B: Structure)
+으로 이동시킬 수 없다.
+
+association은 Zone 간 연결(엣지)만 수행한다.
+
+예) `Square ───► Rectangle` 관계가 있다고 해서 `Square`를 `Canvas` 안으로 이동
+시켜서는 안 된다.
+
+### Rule H4-4. Association Dominance
+
+association은 가장 낮은 우선순위를 가진다.
+
+```
+containment > specialization > featureTyping > association
+```
+
+(H2-12/H3-7과 동일한 우선순위를 association 장에서도 명시)
+
+### Rule H4-5. Association Crossing 회피
+
+association은 다음 우선순위로 라우팅한다.
+
+1. 기존 계층(containment/specialization/featureTyping 배치 결과) 보존
+2. 노드 통과 금지
+3. 컨테이너 내부 통과 금지
+4. 최소 crossing
+5. 최소 bend
+
+예) `ECU ─────► Engine` 엣지가 `maxPower`/`maxTorque`/`Transmission` 위로 지나가서는
+안 된다. (O3/O4와 연결)
+
+### Rule H4-6. Association Boundary Routing
+
+association이 containment container를 가로질러야 하는 경우, 컨테이너 내부를
+통과하지 않고 외곽선을 따라 우회한다.
+
+예) `Canvas { Layer, RenderEngine }` 구조에서 `RenderEngine ─► Rectangle`이면,
+`Canvas` 내부 관통보다 `Canvas` 외곽 우회를 우선한다. (O8과 연결)
+
+### Rule H4-7. Association Anchor
+
+association은 source와 target의 가장 가까운 외곽(anchor)을 사용한다.
+
+우선순위:
+
+1. 동일 레벨 → 좌우 연결
+2. 상하 레벨 → 수직 연결
+3. 최소 거리 anchor
+
+이 규칙이 없으면 `Rectangle` 왼쪽에 있는 노드가 `Rectangle` 오른쪽으로 연결되는
+비합리적인 경로가 발생할 수 있다.
+
+### Rule H4-8. Shared Association Channel
+
+동일 방향으로 진행하는 association은 가능하면 동일 routing channel을 공유한다.
+
+목표: crossing 감소, bend 감소, 가독성 향상. (O7 Channel Routing과 연결)
+
 ---
 
 # 4. 노드 배치 규칙
