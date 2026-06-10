@@ -66,15 +66,32 @@
      * @param {mxCell} cell
      * @returns {string}
      */
-    function getBorderNodeExitStyle(cell) {
-        if (!cell?._isBorderNode || !cell._nodeData) return '';
-        const side = String(cell._nodeData.side || 'E').toUpperCase();
-        switch (side) {
+    function sideExitStyle(side) {
+        switch (String(side || 'E').toUpperCase()) {
             case 'N': return 'exitX=0.5;exitY=0;exitPerimeter=0';
             case 'S': return 'exitX=0.5;exitY=1;exitPerimeter=0';
             case 'W': return 'exitX=0;exitY=0.5;exitPerimeter=0';
             case 'E': default: return 'exitX=1;exitY=0.5;exitPerimeter=0';
         }
+    }
+
+    /**
+     * side(N/S/E/W)에 따른 entry 스타일 반환
+     * @param {string} side
+     * @returns {string}
+     */
+    function sideEntryStyle(side) {
+        switch (String(side || 'E').toUpperCase()) {
+            case 'N': return 'entryX=0.5;entryY=0;entryPerimeter=0';
+            case 'S': return 'entryX=0.5;entryY=1;entryPerimeter=0';
+            case 'W': return 'entryX=0;entryY=0.5;entryPerimeter=0';
+            case 'E': default: return 'entryX=1;entryY=0.5;entryPerimeter=0';
+        }
+    }
+
+    function getBorderNodeExitStyle(cell) {
+        if (!cell?._isBorderNode || !cell._nodeData) return '';
+        return sideExitStyle(cell._nodeData.side);
     }
 
     /**
@@ -84,13 +101,7 @@
      */
     function getBorderNodeEntryStyle(cell) {
         if (!cell?._isBorderNode || !cell._nodeData) return '';
-        const side = String(cell._nodeData.side || 'E').toUpperCase();
-        switch (side) {
-            case 'N': return 'entryX=0.5;entryY=0;entryPerimeter=0';
-            case 'S': return 'entryX=0.5;entryY=1;entryPerimeter=0';
-            case 'W': return 'entryX=0;entryY=0.5;entryPerimeter=0';
-            case 'E': default: return 'entryX=1;entryY=0.5;entryPerimeter=0';
-        }
+        return sideEntryStyle(cell._nodeData.side);
     }
 
     /**
@@ -400,8 +411,17 @@
         const hasElkWaypoints = !borderNodeFeaturetyping && edge.waypoints && Array.isArray(edge.waypoints) && edge.waypoints.length >= 2;
 
         if (!hasElkWaypoints) {
-            const exitStyle = getBorderNodeExitStyle(sourceCell);
-            const entryStyle = getBorderNodeEntryStyle(targetCell);
+            let exitStyle = getBorderNodeExitStyle(sourceCell);
+            let entryStyle = getBorderNodeEntryStyle(targetCell);
+
+            // Rule H4-7 (Association Anchor): association/connector 엣지는
+            // ELK waypoint가 없는 경우(주로 cross-container) source/target의 상대 위치에
+            // 기반한 anchor(side)를 사용해 가장 가까운 외곽으로 연결한다.
+            if (!exitStyle && !entryStyle && (edgeTypeLower === 'association' || edgeTypeLower === 'connector')) {
+                if (edge._assocExit) exitStyle = sideExitStyle(edge._assocExit);
+                if (edge._assocEntry) entryStyle = sideEntryStyle(edge._assocEntry);
+            }
+
             if (exitStyle) style += `;${exitStyle}`;
             if (entryStyle) style += `;${entryStyle}`;
         }

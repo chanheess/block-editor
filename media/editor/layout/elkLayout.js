@@ -1298,6 +1298,34 @@
       }
     }
 
+    // Rule H4-1~H4-4: association은 계층/위치/zone에 영향을 주지 않는다.
+    // (childrenOf, allSpecNodes, Case A/B 위치 계산 어디에도 association은 사용되지 않음 — 유지)
+    //
+    // Rule H4-7: Association Anchor — source/target의 상대 위치(중심점)에 따라
+    // 가장 가까운 외곽(side)을 결정한다. 동일 레벨(수평 차이가 더 큼) → 좌우(E/W),
+    // 상하 레벨(수직 차이가 더 큼) → 상하(N/S). MxEdgeBuilder에서 ELK waypoint가 없는
+    // (주로 cross-container) association/connector 엣지에 적용된다.
+    for (const e of connections) {
+      const kind = String(e.kind || e.type || '').toLowerCase();
+      if (kind !== 'association' && kind !== 'connector') continue;
+      const s = nodeById.get(e.source);
+      const t = nodeById.get(e.target);
+      if (!s || !t) continue;
+      const scx = (s.x || 0) + (s.width || 120) / 2;
+      const scy = (s.y || 0) + (s.height || 60) / 2;
+      const tcx = (t.x || 0) + (t.width || 120) / 2;
+      const tcy = (t.y || 0) + (t.height || 60) / 2;
+      const dx = tcx - scx;
+      const dy = tcy - scy;
+      if (Math.abs(dx) >= Math.abs(dy)) {
+        e._assocExit = dx >= 0 ? 'E' : 'W';
+        e._assocEntry = dx >= 0 ? 'W' : 'E';
+      } else {
+        e._assocExit = dy >= 0 ? 'S' : 'N';
+        e._assocEntry = dy >= 0 ? 'N' : 'S';
+      }
+    }
+
     // guiData 복원 방지 플래그
     diagramData._customLayoutApplied = true;
   }
