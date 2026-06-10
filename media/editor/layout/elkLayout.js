@@ -1249,8 +1249,13 @@
       // 위치가 이미 확정된 노드로 본다 (containment/specialization이 featureTyping보다 우선).
       // 단순 partusage 리프 노드(자식 없음 + specialization 미참여)는 부모(Canvas 등)에
       // 속해 있더라도 그 위치가 featureTyping 외에는 의미를 갖지 않으므로 "미확정"으로 본다.
+      // D10/H3-7: containment parent를 가진 노드는 자신의 containment child가
+      // 없더라도(예: RenderEngine처럼 자식이 portdefinition뿐이라 borderNode로
+      // 변환되어 childrenOf가 비어있는 경우) 이미 containment에 의해 위치가
+      // 확정된 것으로 본다. 그렇지 않으면 featureTyping feature(engine 등)가
+      // Case D(미처리)로 빠져 ELK 기본 위치에 typed와 겹쳐 남는다.
       const isPositionFixed = (node) =>
-        allSpecNodes.has(node.id) || (childrenOf.get(node.id) || []).length > 0;
+        allSpecNodes.has(node.id) || (childrenOf.get(node.id) || []).length > 0 || !!node.parent;
 
       for (const e of connections) {
         const kind = String(e.kind || e.type || '').toLowerCase();
@@ -1289,17 +1294,26 @@
         } else if (!featureFixed && typedFixed) {
           // Case B: typed 위치 확정, feature 위치 미확정 → feature를 typed 근처(위쪽)에 배치
           if (placedFeature.has(feature.id)) continue;
-          const offsetX = stackOffsetXAbove.get(typed.id) || 0;
           const tx = typed.x || 0;
           const ty = typed.y || 0;
           const tw = typed.width || 120;
           const fw = feature.width || 120;
           const fh = feature.height || 60;
 
+          // D10/H3-5: typed가 컨테이너(예: Layer) 내부에 있으면, typed 바로 위(컨테이너
+          // 내부)가 아니라 그 컨테이너 전체의 위쪽에 배치한다. 그렇지 않으면 typed보다
+          // 먼저 배치된 형제 노드(Triangle 등)나 같은 컨테이너를 가리키는 다른 feature와
+          // 겹친다. 동일 컨테이너를 anchor로 공유하는 feature들은 같은 Y에 정렬하고
+          // (D10 "동일 Y 정렬") stackOffsetXAbove로 가로 위치만 분리한다.
+          const typedParent = typed.parent ? nodeById.get(typed.parent) : null;
+          const anchorY = typedParent ? (typedParent.y || 0) : ty;
+          const offsetKey = typedParent ? typedParent.id : typed.id;
+          const offsetX = stackOffsetXAbove.get(offsetKey) || 0;
+
           const featureOldX = feature.x || 0;
           const featureOldY = feature.y || 0;
           feature.x = tx + tw / 2 - fw / 2 + offsetX;
-          feature.y = ty - fh - FT_GAP_Y;
+          feature.y = anchorY - fh - FT_GAP_Y;
           if (feature.parent) {
             const par = nodeById.get(feature.parent);
             feature.relativeX = feature.x - (par?.x || 0);
@@ -1312,7 +1326,7 @@
           // H2-1: feature가 containment 자식을 가지고 있다면 함께 이동
           moveSubtree(feature.id, feature.x - featureOldX, feature.y - featureOldY, collectSubtreeIds(feature.id, new Set()));
 
-          stackOffsetXAbove.set(typed.id, offsetX + fw + FT_GAP_X);
+          stackOffsetXAbove.set(offsetKey, offsetX + fw + FT_GAP_X);
           placedFeature.add(feature.id);
         }
         // Case C: 둘 다 위치 확정 → 위치 변경 없이 edge routing만 수행
