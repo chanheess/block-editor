@@ -902,7 +902,11 @@
       // Root Type 결정 / Parent Set Group / Structure Zone(Type Hierarchy Zone A) 계산에서는
       // 제외한다 (GeomPort/ColorPort/RenderPort 등이 Zone A로 끌려 올라가는 것을 방지).
       const isPort = (nid) => String(nodeById.get(nid)?.kind || nodeById.get(nid)?.type || '').toLowerCase().includes('portdefinition');
-      if (isUsage(child) || isUsage(parent) || isPort(child) || isPort(parent)) continue;
+      // Rule A2/A8: attributedefinition은 Root Type 결정 / Parent Set Group /
+      // Structure Root 계산에서 제외하고, 별도의 Type Hierarchy Zone(Zone A)을
+      // 생성하지 않는다 (specialization 관계가 있어도 Owner 내부에 머문다).
+      const isAttr = (nid) => String(nodeById.get(nid)?.kind || nodeById.get(nid)?.type || '').toLowerCase().includes('attributedefinition');
+      if (isUsage(child) || isUsage(parent) || isPort(child) || isPort(parent) || isAttr(child) || isAttr(parent)) continue;
       if (!specParentsOf.has(child)) specParentsOf.set(child, []);
       specParentsOf.get(child).push(parent);
       if (!specChildrenOf.has(parent)) specChildrenOf.set(parent, []);
