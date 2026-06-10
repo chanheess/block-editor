@@ -1192,7 +1192,12 @@
         const pars = specParentsOf.get(nid) || [];
         if (pars.length > 0) {
           const sum = pars.reduce((acc, p) => acc + (nodeCX.get(p) ?? diagCX), 0);
-          nodeCX.set(nid, sum / pars.length);
+          const virtualCX = sum / pars.length;
+          nodeCX.set(nid, virtualCX);
+          // L7 확장: 이 가상 좌표를 노드 자신에 기록해, 이후 O12 라우팅 단계에서
+          // 이 노드가 specialization 자식에게 보내는 엣지의 출발(exit) 방향을
+          // 가상 좌표(Type Hierarchy Zone) 쪽으로 잡을 수 있도록 한다.
+          n._specVirtualCX = virtualCX;
         } else {
           nodeCX.set(nid, (n.x || 0) + (n.width || 0) / 2);
         }
@@ -1415,6 +1420,125 @@
       } else {
         e._assocExit = dy >= 0 ? 'S' : 'N';
         e._assocEntry = dy >= 0 ? 'N' : 'S';
+      }
+    }
+
+    // Rule O12 (Container Escape Routing, O6/O8 구현):
+    // ELK waypoints가 없는(=moveSubtree에서 삭제된) specialization/containment 엣지가
+    // 자신과 무관한 컨테이너(다른 노드의 containment 영역)의 경계 상자를 가로지르는
+    // 경우, mxGraph 기본 라우터가 화면 전체를 빙 둘러 우회하는 대신 해당 컨테이너의
+    // 우측 측면을 따라가는 2-bend(L자/Z자) 경로를 삽입한다.
+    // O12 사전 정리: M2/M7/L7 재배치로 인해 ELK 원본 waypoints가 더 이상 노드
+    // 근처를 지나지 않게 된(stale) 엣지는, 종류와 무관하게(association 등 포함)
+    // 폐기하여 mxGraph 자동 라우팅 또는 아래 specialization 재계산에 맡긴다.
+    {
+      const STALE_DIST = 400;
+      for (const e of connections) {
+        if (!Array.isArray(e.waypoints) || e.waypoints.length === 0) continue;
+        const s = nodeById.get(e.source);
+        const t = nodeById.get(e.target);
+        if (!s || !t) continue;
+        const scx = (s.x || 0) + (s.width || 120) / 2;
+        const scy = (s.y || 0) + (s.height || 60) / 2;
+        const tcx = (t.x || 0) + (t.width || 120) / 2;
+        const tcy = (t.y || 0) + (t.height || 60) / 2;
+        const wp0 = e.waypoints[0];
+        const wpN = e.waypoints[e.waypoints.length - 1];
+        const dist = (ax, ay, bx, by) => Math.hypot(ax - bx, ay - by);
+        if (dist(wp0.x, wp0.y, scx, scy) > STALE_DIST || dist(wpN.x, wpN.y, tcx, tcy) > STALE_DIST) {
+          delete e.waypoints;
+        }
+      }
+    }
+
+    {
+      const segmentIntersectsRect = (x1, y1, x2, y2, rx1, ry1, rx2, ry2) => {
+        const inside = (x, y) => x >= rx1 && x <= rx2 && y >= ry1 && y <= ry2;
+        if (inside(x1, y1) || inside(x2, y2)) return true;
+        const seg = (ax, ay, bx, by, cx, cy, dx, dy) => {
+          const d1 = (dx - cx) * (ay - cy) - (dy - cy) * (ax - cx);
+          const d2 = (dx - cx) * (by - cy) - (dy - cy) * (bx - cx);
+          const d3 = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
+          const d4 = (bx - ax) * (dy - ay) - (by - ay) * (dx - ax);
+          return ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) &&
+                 ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0));
+        };
+        return (
+          seg(x1, y1, x2, y2, rx1, ry1, rx2, ry1) ||
+          seg(x1, y1, x2, y2, rx2, ry1, rx2, ry2) ||
+          seg(x1, y1, x2, y2, rx2, ry2, rx1, ry2) ||
+          seg(x1, y1, x2, y2, rx1, ry2, rx1, ry1)
+        );
+      };
+      const isAncestor = (ancId, nid) => {
+        let cur = nodeById.get(nid);
+        while (cur && cur.parent) {
+          if (cur.parent === ancId) return true;
+          cur = nodeById.get(cur.parent);
+        }
+        return false;
+      };
+      const containers = elements.filter(n => childrenOf.has(n.id));
+
+      for (const e of connections) {
+        const kind = String(e.kind || e.type || '').toLowerCase();
+        if (!['specialization', 'generalization', 'inheritance', 'containment'].includes(kind)) continue;
+        // specialization/generalization/inheritance 엣지는 M2/M7/L7 재배치로 노드 위치가
+        // ELK 원본 계산 시점과 크게 달라졌을 수 있다. moveSubtree가 양 끝점 중 한쪽만
+        // 이동시킨 경우 stale ELK waypoints가 그대로 남아 화면 전체를 가로지르는 경로가
+        // 될 수 있으므로, 이 단계에서 항상 폐기하고 현재 위치 기준으로 재계산한다.
+        if (kind !== 'containment') delete e.waypoints;
+        if (e.waypoints) continue;
+        const s = nodeById.get(e.source);
+        const t = nodeById.get(e.target);
+        if (!s || !t) continue;
+
+        // Rule M5 anchor: child top-center(exitY=0) → parent bottom(entryY=1, entryX=_specEntryX)
+        // L7-1 확장 (Virtual Descendant Layout): target(부모)이 Dual Role Node로서
+        // L7 가상 좌표(_specVirtualCX)를 가진 경우(Triangle 등), entry 지점을 실제
+        // 박스의 bottom이 아니라 가상 좌표(Type Hierarchy Zone 쪽, 예: Polygon 축)
+        // 위치로 잡는다. RightTriangle/EquilateralTriangle은 이미 그 가상 좌표
+        // 근처에 배치되어 있으므로(M2/M7), 결과적으로 짧은 엣지가 된다.
+        const x1 = (s.x || 0) + (s.width || 120) / 2;
+        const y1 = s.y || 0;
+        const targetHasVirtual = t._specVirtualCX != null;
+        const x2 = targetHasVirtual
+          ? t._specVirtualCX
+          : (t.x || 0) + (e._specEntryX != null ? e._specEntryX * (t.width || 120) : (t.width || 120) / 2);
+        const y2 = targetHasVirtual ? (t.y || 0) + (t.height || 60) / 2 : (t.y || 0) + (t.height || 60);
+
+        let blockerMaxX = -Infinity;
+        for (const c of containers) {
+          if (c.id === e.source || c.id === e.target) continue;
+          if (c.id === s.parent || c.id === t.parent) continue;
+          if (isAncestor(c.id, e.source) || isAncestor(c.id, e.target)) continue;
+          const bx1 = c.x || 0;
+          const by1 = c.y || 0;
+          const bx2 = bx1 + (c.width || 0);
+          const by2 = by1 + (c.height || 0);
+          if (segmentIntersectsRect(x1, y1, x2, y2, bx1, by1, bx2, by2)) {
+            blockerMaxX = Math.max(blockerMaxX, bx2);
+          }
+        }
+
+        if (blockerMaxX === -Infinity) {
+          if (!targetHasVirtual) continue;
+          // 가림은 없지만 가상 entry 방향을 적용하기 위해 2점(start/end)만 기록한다.
+          e.waypoints = [
+            { x: x1, y: y1 },
+            { x: x2, y: y2 },
+          ];
+          continue;
+        }
+
+        const margin = 30;
+        const routeX = blockerMaxX + margin;
+        e.waypoints = [
+          { x: x1, y: y1 },
+          { x: routeX, y: y1 },
+          { x: routeX, y: y2 },
+          { x: x2, y: y2 },
+        ];
       }
     }
 
