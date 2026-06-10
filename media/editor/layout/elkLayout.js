@@ -494,7 +494,9 @@
               const paddingTop = basePaddingTop + (n._precomputedPaddingTop || 0);
               
               // WhileLoopActionUsage needs more bottom padding for 'until condition' label
-              const paddingBottom = isWhileLoop ? (CP?.whileLoopBottom ?? 70) : (CP?.bottom ?? 10);
+              // Rule A9: ports 컴파트먼트 높이(_precomputedPaddingBottom)만큼 하단 여백을
+              // 추가로 확보해 attribute 자식 노드들이 ports보다 위에 배치되도록 한다.
+              const paddingBottom = (isWhileLoop ? (CP?.whileLoopBottom ?? 70) : (CP?.bottom ?? 10)) + (n._precomputedPaddingBottom || 0);
 
               // 컨테이너 내부: containerChildSpacing으로 actor 등 엣지 없는 자식 노드 간 세로 간격 제어
               // (별도 connected component로 처리되므로 componentComponentSpacing 사용)

@@ -109,10 +109,18 @@
           // action flow compartment 제외 (자식 노드로 렌더링됨)
           // key는 'action flow'(space) 또는 'actionFlow'(camelCase) 두 가지로 올 수 있음
           const textComps = containerComps.filter(c => c.key !== 'action flow' && c.key !== 'actionFlow');
-          const compHeight = ns.Editor.metrics.calculateTotalCompartmentsHeight(textComps, false, el.width || 200);
+          // Rule A9: ports 컴파트먼트는 attribute 자식 노드들보다 아래쪽에 배치한다.
+          // ports는 paddingBottom으로, 나머지(doc 등)는 기존대로 paddingTop으로 예약한다.
+          const portComps = textComps.filter(c => c.key === 'ports');
+          const topComps = textComps.filter(c => c.key !== 'ports');
+          const compHeight = ns.Editor.metrics.calculateTotalCompartmentsHeight(topComps, false, el.width || 200);
           if (compHeight > 0) {
             // compartment 높이만 저장 (basePaddingTop이 이미 label+마진을 포함)
             el._precomputedPaddingTop = compHeight;
+          }
+          const portHeight = ns.Editor.metrics.calculateTotalCompartmentsHeight(portComps, false, el.width || 200);
+          if (portHeight > 0) {
+            el._precomputedPaddingBottom = portHeight;
           }
         }
         continue;
