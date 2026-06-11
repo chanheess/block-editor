@@ -496,32 +496,12 @@
             if (entryStyle) style += `;${entryStyle}`;
         }
 
-        // Rule L8 (Projection Edge Collapse): target이 dual-role(가상 좌표)이고
-        // elkLayout이 spine 상 projection anchor를 지정한 경우, 실제 target 셀까지
-        // 긴 cross-zone 선을 그리지 않고 anchor 점에서 종료한다(target 셀 미연결 +
-        // terminal point). _edgeData에는 실제 target이 남아 선택/속성 패널은 정상.
-        const projAnchor = edge._projectionAnchor;
-        const edgeCell = graph.insertEdge(
-            parent, id, edgeLabel, sourceCell,
-            projAnchor ? null : targetCell,
-            style
-        );
+        const edgeCell = graph.insertEdge(parent, id, edgeLabel, sourceCell, targetCell, style);
 
-        if (projAnchor) {
-            const model = graph.getModel();
-            model.beginUpdate();
-            try {
-                const geo = (model.getGeometry(edgeCell) || new mxGeometry()).clone();
-                geo.relative = true;
-                geo.setTerminalPoint(new mxPoint(projAnchor.x, projAnchor.y), false);
-                model.setGeometry(edgeCell, geo);
-            } finally {
-                model.endUpdate();
-            }
-        } else if (hasElkWaypoints && !(edgeTypeLower === 'featuretyping' && !srcIsBorderNode && !tgtIsBorderNode)) {
-            // O15-1: featureTyping(non-border)은 항상 exitX/entryX 고정 anchor로 직선
-            // 연결한다. ELK의 stale geometry.points가 섞이면 exit/entry anchor와
-            // 무관하게 점을 거쳐가는 우회 경로가 생기므로 적용하지 않는다.
+        // O15-1: featureTyping(non-border)은 항상 exitX/entryX 고정 anchor로 직선
+        // 연결한다. ELK의 stale geometry.points가 섞이면 exit/entry anchor와
+        // 무관하게 점을 거쳐가는 우회 경로가 생기므로 적용하지 않는다.
+        if (hasElkWaypoints && !(edgeTypeLower === 'featuretyping' && !srcIsBorderNode && !tgtIsBorderNode)) {
             applyElkWaypoints(graph, edgeCell, edge, sourceCell, targetCell);
         }
 
