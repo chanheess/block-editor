@@ -180,6 +180,19 @@
             return [0, frac];
         }
 
+        function isAssocEdge(edgeCell) {
+            const k = String(edgeCell?._edgeData?.kind || edgeCell?._edgeData?.type || '').toLowerCase();
+            return k === 'association' || k === 'connector';
+        }
+
+        // 기존 exit/entry 앵커 스타일 제거 (분산 fraction으로 교체하기 위함)
+        function stripAnchor(style, which) {
+            return style
+                .replace(new RegExp(`;?${which}X=[0-9.]+`, 'g'), '')
+                .replace(new RegExp(`;?${which}Y=[0-9.]+`, 'g'), '')
+                .replace(new RegExp(`;?${which}Perimeter=[0-9.]+`, 'g'), '');
+        }
+
         const bySource = new Map(), byTarget = new Map();
         for (const e of allEdges) {
             if (!e.source || !e.target) continue;
@@ -213,12 +226,20 @@
                     if (arr.length <= 1) continue;
                     arr.sort((a, b) => a.perp - b.perp);
                     for (let i = 0; i < arr.length; i++) {
-                        if (arr[i].e._hasElkWaypoints) continue;
-                        let st = model.getStyle(arr[i].e) || '';
-                        if (st.includes('exitX=')) continue;
+                        const ed = arr[i].e;
+                        if (ed._hasElkWaypoints) continue;
+                        let st = model.getStyle(ed) || '';
+                        if (st.includes('exitX=')) {
+                            // Rule O9-2 (Association Lane Allocation): association/connector는
+                            // O15-2가 side-center 앵커(exitX=0.5 등)를 박아둬 같은 출발점에
+                            // 겹친다. 기존 앵커를 제거하고 분산 fraction으로 교체한다.
+                            // spec/featuretyping 등은 기존대로 건너뛴다(회귀 방지).
+                            if (!isAssocEdge(ed)) continue;
+                            st = stripAnchor(st, 'exit');
+                        }
                         const [eX, eY] = xyForSide(s, (i + 1) / (arr.length + 1));
                         st += `;exitX=${eX.toFixed(2)};exitY=${eY.toFixed(2)};exitPerimeter=0`;
-                        model.setStyle(arr[i].e, st);
+                        model.setStyle(ed, st);
                         count++;
                     }
                 }
@@ -238,12 +259,17 @@
                     if (arr.length <= 1) continue;
                     arr.sort((a, b) => a.perp - b.perp);
                     for (let i = 0; i < arr.length; i++) {
-                        if (arr[i].e._hasElkWaypoints) continue;
-                        let st = model.getStyle(arr[i].e) || '';
-                        if (st.includes('entryX=')) continue;
+                        const ed = arr[i].e;
+                        if (ed._hasElkWaypoints) continue;
+                        let st = model.getStyle(ed) || '';
+                        if (st.includes('entryX=')) {
+                            // Rule O9-2 (Association Lane Allocation): 위 source 루프와 동일.
+                            if (!isAssocEdge(ed)) continue;
+                            st = stripAnchor(st, 'entry');
+                        }
                         const [nX, nY] = xyForSide(s, (i + 1) / (arr.length + 1));
                         st += `;entryX=${nX.toFixed(2)};entryY=${nY.toFixed(2)};entryPerimeter=0`;
-                        model.setStyle(arr[i].e, st);
+                        model.setStyle(ed, st);
                         count++;
                     }
                 }

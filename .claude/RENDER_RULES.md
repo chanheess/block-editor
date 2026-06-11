@@ -1233,6 +1233,28 @@ specialization > containment > featureTyping > association
 
 - 상위 우선순위 엣지는 더 직선적이고 짧은 경로(채널)를 우선 차지한다.
 - 하위 우선순위 엣지는 상위 엣지의 경로/채널을 피해 우회 경로를 선택한다.
+
+---
+
+## Rule O9-2. Association Lane Allocation (연결점 분산)
+
+여러 association/connector 엣지가 같은 노드로 모이거나(fan-in) 같은 노드에서
+나갈 때(fan-out), 모두 노드 면의 중심점(side-center) 한 곳에 붙으면 선들이 겹쳐
+가독성이 떨어진다(특히 Organization처럼 association이 밀집한 모델).
+
+- 같은 source(또는 target)를 공유하는 association/connector 엣지들을 **면(side)별로
+  묶고**, 각 엣지의 exit/entry 지점을 그 면을 따라 **균등 분산된 fraction**으로 배정해
+  서로 다른 지점에 붙게 한다(레인 분리).
+- 정렬 키는 상대 노드의 perpendicular 좌표(면이 N/S면 상대의 x, E/W면 상대의 y)라서
+  좌우(상하) 순서가 자연스럽게 유지돼 교차도 함께 줄어든다.
+
+**O15-2와의 상호작용**: O15-2가 association에 side-center 앵커(`exitX=0.5` 등)를
+이미 박아두므로, 분산 단계(`distributeOverlappingEdges`)는 기존 앵커가 있어도
+**association/connector에 한해 제거 후 분산 fraction으로 교체**한다. spec/
+featureTyping/borderNode 엣지는 기존 앵커를 유지(건너뜀)해 회귀를 막는다.
+
+> 구현 위치: `MxEdgeBuilder.js` `distributeOverlappingEdges`(bySource/byTarget 그룹의
+> exit/entry 분산 루프에 `isAssocEdge`/`stripAnchor` 추가).
 - 동일 영역에서 specialization, association, featureTyping 엣지가 같은 채널을 공유하여 시각적으로 섞이지 않도록 한다.
 
 ---
