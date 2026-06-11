@@ -67,7 +67,10 @@
           'elk.layered.spacing.edgeNodeBetweenLayers': String(ELK_CFG?.edgeNodeBetweenLayers ?? 40),
           'elk.spacing.edgeNode': String(ELK_CFG?.edgeNodeSpacing ?? 40),
           'elk.layered.considerModelOrder.strategy': ELK_CFG?.modelOrderStrategy ?? 'NODES_AND_EDGES',
-          'elk.layered.nodePlacement.strategy': ELK_CFG?.nodePlacement ?? 'NETWORK_SIMPLEX',
+          'elk.layered.nodePlacement.strategy': ELK_CFG?.nodePlacement ?? 'BRANDES_KOEPF',
+          'elk.layered.nodePlacement.bk.fixedAlignment': ELK_CFG?.nodePlacementBkAlign ?? 'BALANCED',
+          'elk.layered.nodePlacement.favorStraightEdges': 'true',
+          'elk.layered.unnecessaryBendpoints': 'true',
           'elk.edgeRouting': ELK_CFG?.edgeRouting ?? 'ORTHOGONAL',
           'elk.spacing.edgeEdge': String(ELK_CFG?.edgeEdgeSpacing ?? 15),
           'elk.spacing.edgeEdgeBetweenLayers': String(ELK_CFG?.edgeEdgeBetweenLayers ?? 15),
@@ -145,6 +148,19 @@
           }
           if (!s || !t || s === t) {
             continue;
+          }
+          // specialization 엣지: ELK 레이아웃에서 제외
+          // (computeCustomBDDLayout이 spec 노드를 별도 배치하므로 ELK 경로는 무의미)
+          if (kindLower === 'specialization' || kindLower === 'inheritance' || kindLower === 'generalization') {
+            continue;
+          }
+          // cross-container association/connector: ELK에서 제외 (레이아웃 왜곡 방지)
+          if (kindLower === 'association' || kindLower === 'connector') {
+            const sNode = nodeById.get(s);
+            const tNode = nodeById.get(t);
+            const sParent = sNode?.parent || '';
+            const tParent = tNode?.parent || '';
+            if (sParent !== tParent) continue;
           }
           // cross-container featuretyping 엣지는 ELK에서 제외
           // (내부→외부 연결이 컨테이너 레이아웃을 왜곡하므로 mxGraph auto-routing에 위임)
@@ -478,7 +494,9 @@
               const paddingTop = basePaddingTop + (n._precomputedPaddingTop || 0);
               
               // WhileLoopActionUsage needs more bottom padding for 'until condition' label
-              const paddingBottom = isWhileLoop ? (CP?.whileLoopBottom ?? 70) : (CP?.bottom ?? 10);
+              // Rule A9: ports 컴파트먼트 높이(_precomputedPaddingBottom)만큼 하단 여백을
+              // 추가로 확보해 attribute 자식 노드들이 ports보다 위에 배치되도록 한다.
+              const paddingBottom = (isWhileLoop ? (CP?.whileLoopBottom ?? 70) : (CP?.bottom ?? 10)) + (n._precomputedPaddingBottom || 0);
 
               // 컨테이너 내부: containerChildSpacing으로 actor 등 엣지 없는 자식 노드 간 세로 간격 제어
               // (별도 connected component로 처리되므로 componentComponentSpacing 사용)
@@ -758,6 +776,10 @@
       }
       applyPositions(result, 0, 0);
 
+      // BDD specialization 커스텀 레이아웃 적용 (bddLayout.js로 분리)
+      NS.clampChildrenToParent(diagramData.elements, nodeById);
+      NS.computeCustomBDDLayout(diagramData, nodeById);
+
       /**
        * ELK 엣지 라우팅 결과를 diagramData.connections에 적용
        * @param {Object} elkNode - ELK 레이아웃 결과 노드
@@ -841,6 +863,7 @@
       fallbackGrid(diagramData);
     }
   };
+
 
   function fallbackGrid(diagramData) {
     const DS = window.SELAB?.Editor?.config?.displaySettings;

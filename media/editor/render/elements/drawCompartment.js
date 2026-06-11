@@ -499,8 +499,13 @@
      * @param {string} typeLower - 소문자 타입
      */
     function drawContainerCompartments(group, rect, element, app, padX, lineHeight, dragging, typeLower) {
-        const compartments = getCompartments(element, app);
-        if (compartments.length === 0) return;
+        const allCompartments = getCompartments(element, app);
+        if (allCompartments.length === 0) return;
+
+        // Rule A9: ports 컴파트먼트는 attribute 자식 노드들 아래(컨테이너 하단)에
+        // 별도로 그린다. 나머지(doc 등)는 기존대로 헤더 바로 아래에 그린다.
+        const compartments = allCompartments.filter(c => c.key !== 'ports');
+        const portCompartments = allCompartments.filter(c => c.key === 'ports');
 
         const isPackageC = typeLower.includes('package');
         const typeText = ns.Editor.utils.getStereotypeText(element.type);
@@ -531,10 +536,15 @@
             } catch {}
         }
 
+        // 컨테이너 너비가 이후 단계(ports 섹션 등)에서 더 늘어날 수 있으므로,
+        // 여기서 만든 구분선들의 x2를 모아뒀다가 함수 끝에서 최종 element.width에
+        // 맞춰 일괄 보정한다(구분선이 박스 테두리 밖으로 삐져나오는 것 방지).
+        const sepLines = [];
         let y = element.y + headerH + 4;
         if (!isPackageC) {
             const sep = ns.Editor.renderUtils.createSvgLine(element.x, y, element.x + element.width, y, 'comp-sep');
             group.appendChild(sep);
+            sepLines.push(sep);
             y += 6;
         }
 
@@ -547,6 +557,7 @@
             if (ci > 0) {
                 const compSep = ns.Editor.renderUtils.createSvgLine(element.x, y, element.x + element.width, y, 'comp-sep');
                 group.appendChild(compSep);
+                sepLines.push(compSep);
                 y += 6;
             }
             
@@ -583,6 +594,63 @@
             element.height = needH;
             rect.setAttribute('height', String(needH));
             try { app._layoutChanged = true; } catch {}
+        }
+
+        // Rule A9: ports 컴파트먼트는 attribute 자식 노드들 아래, 컨테이너 하단에 그린다.
+        if (portCompartments.length > 0) {
+            let portsLineCount = 0;
+            for (const comp of portCompartments) {
+                portsLineCount += 1 + (Array.isArray(comp.items) ? comp.items.length : 0);
+            }
+            const portsH = portsLineCount * lineHeight + 6;
+
+            // 자식(attribute 등) 노드들의 실제 하단 Y를 반영해 ports 섹션을
+            // 그 아래에 배치한다 (expandContainerToFitChildren이 아직 반영되지
+            // 않은 element.height에 의존하지 않도록).
+            let contentBottom = element.y + element.height;
+            try {
+                const allEls = (app && app.model && Array.isArray(app.model.elements)) ? app.model.elements : [];
+                for (const child of allEls) {
+                    if (String(child.parent) !== String(element.id)) continue;
+                    const cb = Number(child.y || 0) + Number(child.height || 0);
+                    if (cb > contentBottom) contentBottom = cb;
+                }
+            } catch {}
+
+            // ports 섹션을 그릴 공간을 컨테이너 하단에 추가로 확보한다.
+            let py = contentBottom + 8;
+            element.height = Math.max(element.height, py - element.y) + portsH;
+            rect.setAttribute('height', String(Math.ceil(element.height)));
+            try { app._layoutChanged = true; } catch {}
+
+            const sep = ns.Editor.renderUtils.createSvgLine(element.x, py, element.x + element.width, py, 'comp-sep');
+            group.appendChild(sep);
+            sepLines.push(sep);
+            py += 6;
+
+            for (const comp of portCompartments) {
+                const header = ns.Editor.renderUtils.createSvgText(
+                    element.x + padX, py, 'comp-header', String(comp.key || 'compartment')
+                );
+                group.appendChild(header);
+                py += lineHeight;
+
+                const items = Array.isArray(comp.items) ? comp.items : [];
+                for (let ii = 0; ii < items.length; ii++) {
+                    const itemText = formatCompartmentItemLabel(items[ii]);
+                    const itemSvg = ns.Editor.renderUtils.createSvgText(
+                        element.x + padX + 8, py, 'comp-item', String(itemText ?? ''),
+                        { dataCompIndex: -1, dataItemIndex: ii }
+                    );
+                    group.appendChild(itemSvg);
+                    py += lineHeight;
+                }
+            }
+        }
+
+        // 최종 element.width(=rect 너비)에 맞춰 모든 구분선의 x2를 보정한다.
+        for (const line of sepLines) {
+            line.setAttribute('x2', String(element.x + element.width));
         }
     }
 

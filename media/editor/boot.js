@@ -916,7 +916,7 @@
       }
 
       // guiData에 저장된 노드만 사용자 위치로 복원 (새 노드는 ELK 위치 유지)
-      if (hasGuiData) {
+      if (hasGuiData && !normalized._customLayoutApplied) {
         applyGuiDataPositions(ns.Editor._mxGraph, guiData.nodes);
         log(
           "guiData 노드 위치 복원:",

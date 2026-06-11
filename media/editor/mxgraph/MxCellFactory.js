@@ -169,10 +169,26 @@
                     const fitW = maxRight2 + PADDING;
                     const fitH = maxBottom2 + PADDING;
                     // 부모 크기를 자식 fit 크기로 조정 (확장뿐 아니라 축소도)
+                    const oldWidth = pGeo.width;
                     const newGeo = pGeo.clone();
                     newGeo.width = Math.max(fitW, 100); // 최소 100
                     newGeo.height = Math.max(fitH, 60);
                     graphModel.setGeometry(parentCell, newGeo);
+
+                    // compartment 구분선/헤더 셀(MxCompartmentRenderer가 생성, x=0이고
+                    // 폭이 옛 부모 폭과 같음)은 부모 폭 변경에 맞춰 같이 늘리거나 줄인다.
+                    if (newGeo.width !== oldWidth) {
+                        const childCount = graphModel.getChildCount(parentCell);
+                        for (let i = 0; i < childCount; i++) {
+                            const child = graphModel.getChildAt(parentCell, i);
+                            const cg = graphModel.getGeometry(child);
+                            if (cg && cg.x === 0 && Math.abs(cg.width - oldWidth) < 0.5) {
+                                const cgNew = cg.clone();
+                                cgNew.width = newGeo.width;
+                                graphModel.setGeometry(child, cgNew);
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -289,6 +305,7 @@
                 resizeParentsToFitChildren(graph, parent, cellMap, nodes);
 
                 edges.forEach(edge => {
+                    if (edge._skipRender) return;
                     _createEdge(graph, parent, edge, cellMap, borderNodeIds);
                 });
 

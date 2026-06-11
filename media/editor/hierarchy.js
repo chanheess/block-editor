@@ -98,57 +98,12 @@
       safeSetParent(dst, src, false);
     }
 
-    // 2) Qualified name fallback
-    for (const el of model.elements) {
-      if (el.parent) continue;
-      if (compositionTargets.has(el.id)) continue;
-      const parts = String(el.id || el.name || '').split('::');
-      if (parts.length > 1) {
-        parts.pop();
-        const parentName = parts.join('::');
-        const p = byName.get(parentName);
-        if (p) safeSetParent(el, p);
-      }
-    }
+    // 2) Qualified name fallback — 비활성화
+    // 소스 파일 위치(::) 기반 자동 중첩이 BDD 레이아웃을 왜곡함
+    // containment 엣지가 없는 노드는 최상위(root)로 유지
 
-    // 3) Range nesting fallback
-    const cmpPos = (a, b) => (a.line - b.line) || (a.character - b.character);
-    const containsRange = (outer, inner) => {
-      if (!outer || !inner) return false;
-      if (!outer.start || !outer.end || !inner.start || !inner.end) return false;
-      return cmpPos(outer.start, inner.start) <= 0 && cmpPos(outer.end, inner.end) >= 0;
-    };
-    const scoreContainer = (e) => {
-      const t = String(e.type || '').toLowerCase();
-      if (t.includes('package')) return 2;
-      if (t.includes('definition')) return 1;
-      return 0;
-    };
-    for (const child of model.elements) {
-      if (child.parent) continue;
-      if (compositionTargets.has(child.id)) continue;
-
-      let best = null;
-      let bestScore = -1;
-      for (const candidate of model.elements) {
-        if (candidate.id === child.id) continue;
-        if (!containsRange(candidate.range, child.range)) continue;
-        const sc = scoreContainer(candidate);
-        const candSpan = candidate.range && candidate.range.start && candidate.range.end
-          ? (candidate.range.end.line - candidate.range.start.line) * 1000 + (candidate.range.end.character - candidate.range.start.character)
-          : Number.MAX_SAFE_INTEGER;
-        const bestSpan = best && best.range && best.range.start && best.range.end
-          ? (best.range.end.line - best.range.start.line) * 1000 + (best.range.end.character - best.range.start.character)
-          : Number.MAX_SAFE_INTEGER;
-        if (!best || candSpan < bestSpan || (candSpan === bestSpan && sc > bestScore)) {
-          best = candidate;
-          bestScore = sc;
-        }
-      }
-      if (best) {
-        safeSetParent(child, best);
-      }
-    }
+    // 3) Range nesting fallback — 비활성화
+    // 소스 코드 범위(range) 기반 중첩이 BDD containment 의미론과 무관한 계층 생성
   }
 
   ns.Editor.hierarchy = { derive, isHierarchicalEdgeKind };

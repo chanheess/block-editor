@@ -66,15 +66,32 @@
      * @param {mxCell} cell
      * @returns {string}
      */
-    function getBorderNodeExitStyle(cell) {
-        if (!cell?._isBorderNode || !cell._nodeData) return '';
-        const side = String(cell._nodeData.side || 'E').toUpperCase();
-        switch (side) {
+    function sideExitStyle(side) {
+        switch (String(side || 'E').toUpperCase()) {
             case 'N': return 'exitX=0.5;exitY=0;exitPerimeter=0';
             case 'S': return 'exitX=0.5;exitY=1;exitPerimeter=0';
             case 'W': return 'exitX=0;exitY=0.5;exitPerimeter=0';
             case 'E': default: return 'exitX=1;exitY=0.5;exitPerimeter=0';
         }
+    }
+
+    /**
+     * side(N/S/E/W)에 따른 entry 스타일 반환
+     * @param {string} side
+     * @returns {string}
+     */
+    function sideEntryStyle(side) {
+        switch (String(side || 'E').toUpperCase()) {
+            case 'N': return 'entryX=0.5;entryY=0;entryPerimeter=0';
+            case 'S': return 'entryX=0.5;entryY=1;entryPerimeter=0';
+            case 'W': return 'entryX=0;entryY=0.5;entryPerimeter=0';
+            case 'E': default: return 'entryX=1;entryY=0.5;entryPerimeter=0';
+        }
+    }
+
+    function getBorderNodeExitStyle(cell) {
+        if (!cell?._isBorderNode || !cell._nodeData) return '';
+        return sideExitStyle(cell._nodeData.side);
     }
 
     /**
@@ -84,164 +101,9 @@
      */
     function getBorderNodeEntryStyle(cell) {
         if (!cell?._isBorderNode || !cell._nodeData) return '';
-        const side = String(cell._nodeData.side || 'E').toUpperCase();
-        switch (side) {
-            case 'N': return 'entryX=0.5;entryY=0;entryPerimeter=0';
-            case 'S': return 'entryX=0.5;entryY=1;entryPerimeter=0';
-            case 'W': return 'entryX=0;entryY=0.5;entryPerimeter=0';
-            case 'E': default: return 'entryX=1;entryY=0.5;entryPerimeter=0';
-        }
+        return sideEntryStyle(cell._nodeData.side);
     }
 
-    /**
-     * 같은 노드에 여러 엣지가 연결될 때 연결점을 분산 배치 (겹침 방지)
-     * @param {mxGraph} graph
-     */
-    function distributeOverlappingEdges(graph) {
-        const model = graph.getModel();
-        const defaultParent = graph.getDefaultParent();
-
-        const allEdges = [];
-        function collectEdges(cell) {
-            const childCount = model.getChildCount(cell);
-            for (let i = 0; i < childCount; i++) {
-                const child = model.getChildAt(cell, i);
-                if (model.isEdge(child)) allEdges.push(child);
-                else if (model.isVertex(child)) collectEdges(child);
-            }
-        }
-        collectEdges(defaultParent);
-        if (allEdges.length < 2) return;
-
-        function absCenter(cell) {
-            if (!cell) return null;
-            const geo = model.getGeometry(cell);
-            if (!geo) return null;
-            let x = geo.x || 0, y = geo.y || 0;
-            const w = geo.width || 0, h = geo.height || 0;
-            let p = cell.parent;
-            while (p && p !== defaultParent && p !== model.getRoot()) {
-                const pg = model.getGeometry(p);
-                if (pg) { x += pg.x || 0; y += pg.y || 0; }
-                p = p.parent;
-            }
-            return { x: x + w / 2, y: y + h / 2 };
-        }
-
-        function absBounds(cell) {
-            if (!cell) return null;
-            const geo = model.getGeometry(cell);
-            if (!geo) return null;
-            let x = geo.x || 0, y = geo.y || 0;
-            const w = geo.width || 0, h = geo.height || 0;
-            let p = cell.parent;
-            while (p && p !== defaultParent && p !== model.getRoot()) {
-                const pg = model.getGeometry(p);
-                if (pg) { x += pg.x || 0; y += pg.y || 0; }
-                p = p.parent;
-            }
-            return { x, y, w, h, cx: x + w / 2, cy: y + h / 2 };
-        }
-
-        function exitSideFor(refCell, otherCenter) {
-            const rb = absBounds(refCell);
-            if (!rb || !otherCenter) return null;
-            const right = rb.x + rb.w, bottom = rb.y + rb.h;
-            if (otherCenter.y >= bottom) return 'S';
-            if (otherCenter.y <= rb.y) return 'N';
-            if (otherCenter.x >= right) return 'E';
-            if (otherCenter.x <= rb.x) return 'W';
-            const dS = bottom - otherCenter.y;
-            const dN = otherCenter.y - rb.y;
-            const dE = right - otherCenter.x;
-            const dW = otherCenter.x - rb.x;
-            const min = Math.min(dS, dN, dE, dW);
-            if (min === dS) return 'S';
-            if (min === dN) return 'N';
-            if (min === dE) return 'E';
-            return 'W';
-        }
-
-        function xyForSide(s, frac) {
-            if (s === 'S') return [frac, 1];
-            if (s === 'N') return [frac, 0];
-            if (s === 'E') return [1, frac];
-            return [0, frac];
-        }
-
-        const bySource = new Map(), byTarget = new Map();
-        for (const e of allEdges) {
-            if (!e.source || !e.target) continue;
-            if (!e.source._isBorderNode) {
-                const k = e.source.id;
-                if (!bySource.has(k)) bySource.set(k, []);
-                bySource.get(k).push(e);
-            }
-            if (!e.target._isBorderNode) {
-                const k = e.target.id;
-                if (!byTarget.has(k)) byTarget.set(k, []);
-                byTarget.get(k).push(e);
-            }
-        }
-
-        let count = 0;
-        model.beginUpdate();
-        try {
-            for (const [, group] of bySource) {
-                if (group.length <= 1) continue;
-                const bySide = {};
-                for (const e of group) {
-                    const tc = absCenter(e.target);
-                    if (!tc) continue;
-                    const s = exitSideFor(e.source, tc);
-                    if (!s) continue;
-                    if (!bySide[s]) bySide[s] = [];
-                    bySide[s].push({ e, perp: (s === 'N' || s === 'S') ? tc.x : tc.y });
-                }
-                for (const [s, arr] of Object.entries(bySide)) {
-                    if (arr.length <= 1) continue;
-                    arr.sort((a, b) => a.perp - b.perp);
-                    for (let i = 0; i < arr.length; i++) {
-                        if (arr[i].e._hasElkWaypoints) continue;
-                        let st = model.getStyle(arr[i].e) || '';
-                        if (st.includes('exitX=')) continue;
-                        const [eX, eY] = xyForSide(s, (i + 1) / (arr.length + 1));
-                        st += `;exitX=${eX.toFixed(2)};exitY=${eY.toFixed(2)};exitPerimeter=0`;
-                        model.setStyle(arr[i].e, st);
-                        count++;
-                    }
-                }
-            }
-            for (const [, group] of byTarget) {
-                if (group.length <= 1) continue;
-                const bySide = {};
-                for (const e of group) {
-                    const sc = absCenter(e.source);
-                    if (!sc) continue;
-                    const s = exitSideFor(e.target, sc);
-                    if (!s) continue;
-                    if (!bySide[s]) bySide[s] = [];
-                    bySide[s].push({ e, perp: (s === 'N' || s === 'S') ? sc.x : sc.y });
-                }
-                for (const [s, arr] of Object.entries(bySide)) {
-                    if (arr.length <= 1) continue;
-                    arr.sort((a, b) => a.perp - b.perp);
-                    for (let i = 0; i < arr.length; i++) {
-                        if (arr[i].e._hasElkWaypoints) continue;
-                        let st = model.getStyle(arr[i].e) || '';
-                        if (st.includes('entryX=')) continue;
-                        const [nX, nY] = xyForSide(s, (i + 1) / (arr.length + 1));
-                        st += `;entryX=${nX.toFixed(2)};entryY=${nY.toFixed(2)};entryPerimeter=0`;
-                        model.setStyle(arr[i].e, st);
-                        count++;
-                    }
-                }
-            }
-        } finally {
-            model.endUpdate();
-        }
-        if (count > 0) log(`엣지 분산 배치: ${count}개 연결점 조정`);
-    }
 
     /**
      * ELK waypoints를 엣지 셀에 적용
@@ -333,6 +195,23 @@
      * @param {Set} borderNodeIds
      * @returns {mxCell|null}
      */
+    function getCellAbsCenter(graph, cell) {
+        const model = graph.getModel();
+        const defaultParent = graph.getDefaultParent();
+        const g = model.getGeometry(cell);
+        if (!g) return null;
+        let cx = (g.x || 0) + (g.width || 0) / 2;
+        let x = g.x || 0;
+        const w = g.width || 0;
+        let p = cell.parent;
+        while (p && p !== defaultParent && p !== model.getRoot()) {
+            const pg = model.getGeometry(p);
+            if (pg) { cx += pg.x || 0; x += pg.x || 0; }
+            p = p.parent;
+        }
+        return { x, w, cx };
+    }
+
     function createEdge(graph, parent, edge, cellMap, borderNodeIds) {
         if (!graph || !edge) return null;
 
@@ -397,18 +276,57 @@
         const srcIsBorderNode = sourceCell._isBorderNode === true;
         const tgtIsBorderNode = targetCell._isBorderNode === true;
         const borderNodeFeaturetyping = (srcIsBorderNode || tgtIsBorderNode) && edgeTypeLower === 'featuretyping';
-        const hasElkWaypoints = !borderNodeFeaturetyping && edge.waypoints && Array.isArray(edge.waypoints) && edge.waypoints.length >= 2;
+        const isAssocOrConnector = edgeTypeLower === 'association' || edgeTypeLower === 'connector';
+        const hasElkWaypoints = !borderNodeFeaturetyping && !isAssocOrConnector && edge.waypoints && Array.isArray(edge.waypoints) && edge.waypoints.length >= 2;
+
+        // Rule O15 (Edge Anchor Consistency): featureTyping은 source.bottom -> target.top
+        // anchor로 고정한다 (O11로 feature가 typed 바로 위에 인접 배치되므로 자연스럽게 직선이 됨).
+        // specialization/containment은 parent가 child보다 아래/옆에 위치하는 경우가 많아
+        // top/bottom 고정 anchor가 오히려 큰 우회를 유발하므로 기존 동적 anchor를 유지한다.
+        if (!srcIsBorderNode && !tgtIsBorderNode) {
+            if (edgeTypeLower === 'featuretyping') {
+                // O15-1: typed node가 feature 바로 아래(dy >= dx)일 때만 기존
+                // bottom->top anchor를 쓰고, 그 외(옆/위쪽 배치)에는 상대 위치
+                // 기준 side anchor를 사용해 노드 위를 가로지르지 않게 한다.
+                if (edge._ftExit === 'S' && edge._ftEntry === 'N') {
+                    // resizeParentsToFitChildren()이 createEdge 이전에 실행되므로,
+                    // elkLayout 시점의 _ftEntryX(비율) 대신 현재(최종) 셀 geometry
+                    // 기준으로 entryX를 다시 계산해 typed의 width 변경에도 source
+                    // 중심과 절대 X가 일치하도록 한다.
+                    let entryX = edge._ftEntryX != null ? edge._ftEntryX : 0.5;
+                    const srcAbs = getCellAbsCenter(graph, sourceCell);
+                    const tgtAbs = getCellAbsCenter(graph, targetCell);
+                    if (srcAbs && tgtAbs && tgtAbs.w > 0) {
+                        entryX = Math.max(0, Math.min(1, (srcAbs.cx - tgtAbs.x) / tgtAbs.w));
+                    }
+                    style += `;exitX=0.5;exitY=1;exitPerimeter=0;entryX=${entryX.toFixed(3)};entryY=0;entryPerimeter=0;jettySize=0`;
+                } else if (edge._ftExit && edge._ftEntry) {
+                    style += `;${sideExitStyle(edge._ftExit)};${sideEntryStyle(edge._ftEntry)}`;
+                } else {
+                    style += ';exitX=0.5;exitY=1;exitPerimeter=0;entryX=0.5;entryY=0;entryPerimeter=0';
+                }
+            } else if ((edgeTypeLower === 'association' || edgeTypeLower === 'connector') &&
+                       edge._assocExit && edge._assocEntry) {
+                // Rule O15-2: featureTyping과 동일하게 상대 위치 기준 side anchor를
+                // 고정해 단일 꺾임의 짧은 경로가 나오도록 한다.
+                style += `;${sideExitStyle(edge._assocExit)};${sideEntryStyle(edge._assocEntry)};orthogonalLoop=0;jettySize=0`;
+            }
+        }
 
         if (!hasElkWaypoints) {
-            const exitStyle = getBorderNodeExitStyle(sourceCell);
-            const entryStyle = getBorderNodeEntryStyle(targetCell);
+            let exitStyle = getBorderNodeExitStyle(sourceCell);
+            let entryStyle = getBorderNodeEntryStyle(targetCell);
+
             if (exitStyle) style += `;${exitStyle}`;
             if (entryStyle) style += `;${entryStyle}`;
         }
 
         const edgeCell = graph.insertEdge(parent, id, edgeLabel, sourceCell, targetCell, style);
 
-        if (hasElkWaypoints) {
+        // O15-1: featureTyping(non-border)은 항상 exitX/entryX 고정 anchor로 직선
+        // 연결한다. ELK의 stale geometry.points가 섞이면 exit/entry anchor와
+        // 무관하게 점을 거쳐가는 우회 경로가 생기므로 적용하지 않는다.
+        if (hasElkWaypoints && !(edgeTypeLower === 'featuretyping' && !srcIsBorderNode && !tgtIsBorderNode)) {
             applyElkWaypoints(graph, edgeCell, edge, sourceCell, targetCell);
         }
 
@@ -416,146 +334,11 @@
         return edgeCell;
     }
 
-    /**
-     * Border Node 생성 (부모 셀의 테두리에 작은 사각형으로 표시)
-     * @param {mxGraph} graph
-     * @param {mxCell} parentCell
-     * @param {Object} borderNode
-     * @param {number} index
-     * @param {number} total
-     * @param {number} sideIndex
-     * @param {number} sideTotal
-     * @returns {mxCell|null}
-     */
-    function createBorderNode(graph, parentCell, borderNode, index, total, sideIndex, sideTotal) {
-        if (!graph || !parentCell || !borderNode) return null;
-
-        const parentGeo = parentCell.getGeometry();
-        if (!parentGeo) return null;
-
-        const DS_bn = window.SELAB?.Editor?.config?.displaySettings;
-        const size = DS_bn?.borderNode?.size ?? 12;
-        const dirLower = String(borderNode.direction || '').toLowerCase();
-        const isParameterPin = borderNode.nodeType === 'parameter' || borderNode.isParameter === true;
-
-        const side = String(borderNode.side || 'E').toUpperCase();
-        // processBorderNodes에서 이미 offset을 계산한 경우 그 값 우선 사용
-        // 기본값(0.5)이면 sideIndex 기반 폴백 계산 적용
-        const hasPrecomputedOffset = typeof borderNode.offset === 'number' && borderNode.offset !== 0.5;
-        const computedOffset = hasPrecomputedOffset
-            ? borderNode.offset
-            : (typeof sideIndex === 'number' && typeof sideTotal === 'number' && sideTotal > 0)
-                ? (sideIndex + 1) / (sideTotal + 1)
-                : 0.25;
-        const offset = Math.max(0, Math.min(1, computedOffset));
-
-        let relativeX = 1, relativeY = offset;
-        let geoOffsetX = -size / 2, geoOffsetY = -size / 2;
-        let portConstraint = 'eastwest';
-
-        switch (side) {
-            case 'N':
-                relativeX = offset; relativeY = 0;
-                geoOffsetX = -size / 2; geoOffsetY = -size / 2;
-                portConstraint = 'northsouth';
-                break;
-            case 'S':
-                relativeX = offset; relativeY = 1;
-                geoOffsetX = -size / 2; geoOffsetY = -size / 2;
-                portConstraint = 'northsouth';
-                break;
-            case 'W':
-                relativeX = 0; relativeY = offset;
-                geoOffsetX = -size / 2; geoOffsetY = -size / 2;
-                portConstraint = 'eastwest';
-                break;
-            case 'E': default:
-                relativeX = 1; relativeY = offset;
-                geoOffsetX = -size / 2; geoOffsetY = -size / 2;
-                portConstraint = 'eastwest';
-                break;
-        }
-
-        const isItem = borderNode.nodeType === 'item' || borderNode.nodeType === 'directedItem';
-        const isDark = ns.MxGraph.styleColors?.isDarkTheme?.() || false;
-        const strokeColor = isItem ? '#4CAF50' : (isDark ? '#999999' : '#333333');
-        const bnFillColor = isDark ? '#2d2d2d' : '#FFFFFF';
-        const bnFontColor = isDark ? '#e0e0e0' : '#333333';
-
-        const bnSpTop = DS_bn?.borderNode?.spacingTop ?? 2;
-        const bnSpBot = DS_bn?.borderNode?.spacingBottom ?? 2;
-        let verticalLabelPosition = 'bottom';
-        let verticalAlignValue = 'top';
-        let spacingTopValue = bnSpTop;
-        let spacingBottomValue = null;
-
-        const isDirectedIn = dirLower === 'in' || dirLower.startsWith('in');
-        const isDirectedOut = dirLower === 'out' || dirLower.startsWith('out');
-
-        if ((isParameterPin || isItem) && isDirectedIn) {
-            verticalLabelPosition = 'top';
-            verticalAlignValue = 'bottom';
-            spacingTopValue = null;
-            spacingBottomValue = bnSpBot + 1; // 2 + 1 = 3
-        } else if ((isParameterPin || isItem) && isDirectedOut) {
-            verticalLabelPosition = 'bottom';
-            verticalAlignValue = 'top';
-            spacingTopValue = bnSpTop - 2; // Reduce space to make it look balanced with 'in'
-        }
-
-        const styleParts = [
-            'shape=rectangle',
-            `fillColor=${bnFillColor}`,
-            `strokeColor=${strokeColor}`,
-            'strokeWidth=2',
-            'fontSize=8',
-            `fontColor=${bnFontColor}`,
-            `portConstraint=${portConstraint}`,
-            'labelPosition=center',
-            `verticalLabelPosition=${verticalLabelPosition}`,
-            'align=center',
-            `verticalAlign=${verticalAlignValue}`,
-        ];
-        if (spacingTopValue !== null) styleParts.push(`spacingTop=${spacingTopValue}`);
-        if (spacingBottomValue !== null) styleParts.push(`spacingBottom=${spacingBottomValue}`);
-        const style = styleParts.join(';');
-
-        let label = borderNode.name || '';
-        const borderNodeTypeLower = String(borderNode.nodeType || borderNode.type || borderNode.kind || '').toLowerCase();
-        const shouldShowTypeName = !isParameterPin &&
-            borderNode.typeName &&
-            !((borderNodeTypeLower === 'item' || borderNodeTypeLower === 'itemusage' || borderNodeTypeLower === 'directeditem') &&
-                String(borderNode.typeName).toLowerCase() === 'item');
-        if (shouldShowTypeName) {
-            label = `${label} : ${borderNode.typeName}`;
-        }
-
-        const borderCell = graph.insertVertex(
-            parentCell,
-            borderNode.id,
-            label,
-            relativeX, relativeY,
-            size, size,
-            style
-        );
-
-        const geo = borderCell.getGeometry();
-        if (geo) {
-            geo.relative = true;
-            geo.offset = new mxPoint(geoOffsetX, geoOffsetY);
-        }
-
-        borderCell._nodeData = borderNode;
-        borderCell._isBorderNode = true;
-
-        return borderCell;
-    }
-
     // Export
     ns.MxGraph.factory.createEdge = createEdge;
-    ns.MxGraph.factory.createBorderNode = createBorderNode;
-    ns.MxGraph.factory.distributeOverlappingEdges = distributeOverlappingEdges;
     ns.MxGraph.factory.isHierarchicalEdgeKind = isHierarchicalEdgeKind;
+    // createBorderNode는 MxBorderNodeBuilder.js로,
+    // distributeOverlappingEdges는 MxEdgeDistributor.js로 분리됨
 
     console.log('[MxEdgeBuilder] 모듈 로드 완료');
 })();

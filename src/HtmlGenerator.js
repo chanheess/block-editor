@@ -196,6 +196,8 @@ class HtmlGenerator {
     <script nonce="${nonce}" src="${es('mxgraph/MxLoopBodyRenderer.js')}"></script>
     <script nonce="${nonce}" src="${es('mxgraph/MxVertexBuilder.js')}"></script>
     <script nonce="${nonce}" src="${es('mxgraph/MxEdgeBuilder.js')}"></script>
+    <script nonce="${nonce}" src="${es('mxgraph/MxBorderNodeBuilder.js')}"></script>
+    <script nonce="${nonce}" src="${es('mxgraph/MxEdgeDistributor.js')}"></script>
     <script nonce="${nonce}" src="${es('mxgraph/MxCellFactory.js')}"></script>
     <script nonce="${nonce}" src="${es('mxgraph/MxHistoryManager.js')}"></script>
     <script nonce="${nonce}" src="${es('mxgraph/MxEventHandler.js')}"></script>
@@ -244,6 +246,7 @@ class HtmlGenerator {
     <!-- ELK -->
     <script nonce="${nonce}" src="${elk.toString()}?${version}"></script>
     <script nonce="${nonce}" src="${es('layout/elkLayout.js')}"></script>
+    <script nonce="${nonce}" src="${es('layout/bddLayout.js')}"></script>
     <script nonce="${nonce}" src="${es('layout/alignRanks.js')}"></script>
     <!-- Editor services -->
     <script nonce="${nonce}" src="${es('hierarchy.js')}"></script>
