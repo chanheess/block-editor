@@ -1248,6 +1248,11 @@
           // 이 노드가 specialization 자식에게 보내는 엣지의 출발(exit) 방향을
           // 가상 좌표(Type Hierarchy Zone) 쪽으로 잡을 수 있도록 한다.
           n._specVirtualCX = virtualCX;
+          // L8 (Projection Anchor): dual-role 노드의 spine 상 가상 Y(현재 레벨 행).
+          // free spec 자식(Square 등)이 이 바로 아래 레벨에 배치되므로, 자식→부모
+          // 역방향 엣지를 실제 박스(Canvas)가 아니라 이 anchor에서 종료시키면
+          // 긴 cross-zone 선이 사라진다(Projection Edge Collapse).
+          n._specVirtualCY = currentY + (n.height || 60) / 2;
         } else {
           nodeCX.set(nid, (n.x || 0) + (n.width || 0) / 2);
         }
@@ -1499,6 +1504,24 @@
       }
       return false;
     };
+
+    // Rule O7-1 (Duplicate Association Collapse): 같은 노드 쌍을 잇는 association/
+    // connector가 양방향(A→B, B→A) 또는 중복으로 존재하면 시각적으로 한 선에 겹친다.
+    // 무방향 키(정렬된 쌍) 기준으로 첫 엣지만 남기고 나머지는 _skipRender 처리한다.
+    {
+      const seenPair = new Set();
+      for (const e of connections) {
+        const kind = String(e.kind || e.type || '').toLowerCase();
+        if (kind !== 'association' && kind !== 'connector') continue;
+        if (e._skipRender) continue;
+        if (!e.source || !e.target) continue;
+        const a = String(e.source), b = String(e.target);
+        const key = a < b ? `${a}|${b}` : `${b}|${a}`;
+        if (seenPair.has(key)) { e._skipRender = true; continue; }
+        seenPair.add(key);
+      }
+    }
+
     for (const e of connections) {
       const kind = String(e.kind || e.type || '').toLowerCase();
       if (kind !== 'association' && kind !== 'connector' && kind !== 'featuretyping') continue;
@@ -1640,7 +1663,17 @@
         const x2 = targetHasVirtual
           ? t._specVirtualCX
           : (t.x || 0) + (e._specEntryX != null ? e._specEntryX * (t.width || 120) : (t.width || 120) / 2);
-        const y2 = targetHasVirtual ? (t.y || 0) + (t.height || 60) / 2 : (t.y || 0) + (t.height || 60);
+        // L8 (Projection Edge Collapse): target이 dual-role(가상 좌표 보유)이면 entry를
+        // 실제 박스 위치가 아니라 spine 상의 projection anchor(_specVirtualCX,_specVirtualCY)로
+        // 잡고, MxEdgeBuilder가 실제 셀까지 끌지 않고 이 점에서 종료하도록 플래그를 단다.
+        const y2 = targetHasVirtual
+          ? (t._specVirtualCY != null ? t._specVirtualCY : (t.y || 0) + (t.height || 60) / 2)
+          : (t.y || 0) + (t.height || 60);
+        if (targetHasVirtual && t._specVirtualCY != null) {
+          e._projectionAnchor = { x: x2, y: y2 };
+        } else {
+          delete e._projectionAnchor;
+        }
 
         let blockerMaxX = -Infinity;
         for (const c of containers) {
